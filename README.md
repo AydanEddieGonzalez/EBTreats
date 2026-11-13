@@ -212,4 +212,4 @@ This project was built collaboratively with contributions from:
 - ML/LLM Pipeline Development
 - UI/UX Design
 
-**EBTreats** - Making every EBT dollar count. 🥕
+**EBTreats** - Making every EBT dollar count.
