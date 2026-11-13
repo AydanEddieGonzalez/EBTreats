@@ -92,40 +92,53 @@ SaveBites/
 
 1. **Clone the repository**
    ```bash
-   git clone <repository-url>
-   cd SaveBites
+   git clone https://github.com/AydanEddieGonzalez/EBTreats.git
+   cd EBTreats
    ```
 
-2. **Setup Backend**
+2. **Install Tesseract** (needed for receipt scanning)
+   - Windows: install from https://github.com/UB-Mannheim/tesseract/wiki (default path `C:\Program Files\Tesseract-OCR` is detected automatically)
+   - Mac: `brew install tesseract`
+
+3. **Set up the Python environment** (from the repo root)
+   ```bash
+   python -m venv venv
+   # Windows (PowerShell):
+   venv\Scripts\activate
+   # Mac/Linux:
+   source venv/bin/activate
+
+   pip install -r requirements.txt
+   ```
+   The backend finds `venv/` at the repo root automatically. Don't commit `venv/`.
+
+4. **Set up the backend**
    ```bash
    cd backend
    npm install
-   # Create .env file with your MongoDB URI and API keys
-   cp env_template .env
-   # Edit .env with your credentials
+   # Windows (PowerShell): copy .env.example .env
+   # Mac/Linux:            cp .env.example .env
    ```
+   Then fill in `backend/.env` (see Environment Variables below).
 
-3. **Setup Frontend**
+5. **Set up the frontend** (from the repo root)
    ```bash
    cd frontend
    npm install
    ```
 
-4. **Setup Python Environment**
-   ```bash
-   python -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
-   pip install -r requirements.txt  # If available, or install packages manually
-   ```
-
 ### Environment Variables
 
-Create a `.env` file in the backend directory with:
-```
-MONGODB_URI=your_mongodb_connection_string
-MY_API_KEY=your_google_gemini_api_key
-PORT=5000
-```
+All keys live in `backend/.env`, which is gitignored. Never commit it. `backend/.env.example` lists every variable:
+
+| Variable | What it's for | Where to get it |
+| --- | --- | --- |
+| `MY_API_KEY` | Gemini recipe generation | https://aistudio.google.com/apikey |
+| `USDA_API_KEY` | Receipt OCR food check | https://fdc.nal.usda.gov/api-key-signup |
+| `MONGODB_URI` | Database connection | Ask the Integration lead for the team URI |
+| `MONGODB_DB` | Database name | Ask the Integration lead |
+| `PYTHON_PATH` | Optional: only if Python isn't auto-detected | Full path to `venv\Scripts\python.exe` |
+| `TESSERACT_CMD` | Optional: only if Tesseract isn't auto-detected | Full path to `tesseract.exe` |
 
 ### Running the Application
 
@@ -134,11 +147,12 @@ PORT=5000
    mongod
    ```
 
-2. **Start Backend**
+2. **Start Backend** (must be run from `backend/` so it finds `.env`)
    ```bash
    cd backend
-   node api_call.js
+   npm start
    ```
+   It runs at `http://localhost:3001`.
 
 3. **Start Frontend** (in a new terminal)
    ```bash

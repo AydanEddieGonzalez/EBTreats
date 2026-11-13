@@ -1,0 +1,10 @@
+# Python packages for the LLM pipeline and receipt OCR
+# Install: pip install -r requirements.txt
+google-genai>=1.45.0      # Gemini recipe generation (llm_pipeline/)
+python-dotenv>=1.1.1      # loads backend/.env
+requests>=2.32.5          # USDA FoodData lookups (backend/ImageCleaning.py)
+numpy
+opencv-python             # imported as cv2
+scikit-image              # imported as skimage
+deskew
+pytesseract               # also needs the Tesseract program installed, see README
