@@ -1,15 +1,23 @@
-# SaveBites
+# EBTreats
 
-A smart recipe generation and grocery management application that helps busy students reduce food waste, track spending, and discover recipes based on what they already have.
+Helping families stretch their EBT/SNAP benefits further and eat healthier. EBTreats shows you where to shop, what to buy, and how to use it all before it goes bad.
+
+Built for the OpenProject Hackathon (UN Sustainable Development Goals). Based on [SaveBites](https://github.com/Devansh-Ojha/SaveBites).
 
 ## Overview
 
-Between classes, labs, and social life, it's hard to keep track of what you have, what to cook, and when food will go bad. **SaveBites** addresses this by:
+SNAP helps families afford food, but it doesn't help them choose it. Studies keep finding that adults on SNAP eat lower-quality diets than other low-income adults ([Nguyen et al., 2014](https://pubmed.ncbi.nlm.nih.gov/25107469/)). The aid is there; the guidance isn't.
 
-- **Scanning receipts** to automatically extract and track groceries
-- **Reminding users** of upcoming expiration dates
-- **Suggesting personalized recipes** that utilize ingredients already in your pantry
-- **Recommending informed spending habits** to reduce waste and save money
+**EBTreats** closes that gap by:
+
+- **Finding nearby EBT stores**, ranking stores in fruit-and-vegetable incentive programs first, using USDA's SNAP retailer data
+- **Building a healthy shopping list** that fits your weekly budget and goals, from a simple chat ("feed 4 on $60", "more protein")
+- **Turning that list into recipes** that share ingredients, so nothing is bought for a single meal
+- **Tracking your pantry** and reminding you what to use first, to cut food waste
+
+Coming next: one-tap checkout with delivery partners that accept EBT online (autobuy is a work-in-progress demo today).
+
+**SDGs:** 2 Zero Hunger, 3 Good Health, 12 Responsible Consumption, 17 Partnerships for the Goals.
 
 ## Features
 
@@ -44,7 +52,7 @@ Between classes, labs, and social life, it's hard to keep track of what you have
 ## Project Structure
 
 ```
-SaveBites/
+EBTreats/
 ├── frontend/                 # React application
 │   ├── src/
 │   │   ├── App.js           # Main app component
@@ -204,4 +212,4 @@ This project was built collaboratively with contributions from:
 - ML/LLM Pipeline Development
 - UI/UX Design
 
-**SaveBites** - Reducing waste, one recipe at a time. 🍽️
+**EBTreats** - Making every EBT dollar count. 🥕
