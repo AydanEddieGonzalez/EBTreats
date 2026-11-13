@@ -15,17 +15,20 @@ class Validator:
         return self.recipeLLM.generate_recipes(user)
 
     def validate(self, user: UserProfile, recipes: list[Recipe]):
-        valid = []
-        for r in recipes:
-            if self._is_valid_recipe(user, r):
-                valid.append(r)
-        while len(valid) < NUM_RECIPES:
-            new_recipe = self.regenerate_recipes(user)
-            if new_recipe and self._is_valid_recipe(user, new_recipe):
-                valid.append(new_recipe)
-        return valid
+        valid = [r for r in recipes if self.is_valid_recipe(user, r)]
+        attempts = 0
+        # regenerate_recipes returns a list; cap retries so a strict diet can't loop forever
+        while len(valid) < NUM_RECIPES and attempts < 3:
+            attempts += 1
+            for new_recipe in self.regenerate_recipes(user):
+                if self.is_valid_recipe(user, new_recipe):
+                    valid.append(new_recipe)
+        return valid[:NUM_RECIPES]
 
-    def is_valid_recipe(self, user: UserProfile, recipe: Recipe):
+    def is_valid_recipe(self, user: UserProfile, recipe):
+        if not user.dietary_restrictions:
+            return True
+        ingredients = recipe.get("ingredients") if isinstance(recipe, dict) else recipe.ingredients
         client = self.recipeLLM.client
         prompt = f"""
         Return JSON:
@@ -33,7 +36,8 @@ class Validator:
             "valid": boolean
         }}
         Does the recipe contain ANY ingredient that violates the user's dietary restrictions?
-        Recipe ingredients: {recipe.ingredients}
+        "valid" must be true ONLY if no ingredient violates the restrictions.
+        Recipe ingredients: {ingredients}
         User restrictions: {user.dietary_restrictions}
         Output ONLY JSON.
         """

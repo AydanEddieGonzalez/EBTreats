@@ -4,7 +4,7 @@ from data_classes.Recipes import Recipe
 from data_classes.UserProfile import UserProfile
 
 import os
-api_key = os.getenv("GOOGLE_API_KEY")
+api_key = os.getenv("MY_API_KEY")
 
 class Model():
 	# change this later

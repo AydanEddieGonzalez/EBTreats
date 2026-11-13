@@ -2,13 +2,15 @@ import { useState } from 'react';
 import './buttons.css';
 import './Generate.css'
 
-export default function Generate({pantryItems, time, difficulty, budget, allergens, appliances, cuisines }) {
+export default function Generate({username, pantryItems, time, difficulty, budget, allergens, appliances, cuisines }) {
 	const [recipes, setRecipes] = useState([]);
+	const [loading, setLoading] = useState(false);
+	const [error, setError] = useState("");
 	const [selectedRecipe, setSelectedRecipe] = useState(null);
 	
 	function generateRecipe() {
 		const payload = {
-			username: "user",
+			username,
 			pantryItems,
 			time,
 			difficulty,
@@ -18,6 +20,8 @@ export default function Generate({pantryItems, time, difficulty, budget, allerge
 			cuisines
 		};
 
+		setLoading(true);
+		setError("");
 		fetch("http://localhost:3001/generate_recipes", {
 			method: "POST",
 			headers: {
@@ -27,16 +31,19 @@ export default function Generate({pantryItems, time, difficulty, budget, allerge
 		})
 		.then(res => res.json())
 		.then(data => {
-			if (data.recipes) {
+			if (data.recipes && data.recipes.length > 0) {
 				setRecipes(data.recipes);
 				setSelectedRecipe(data.recipes[0]);
 			} else {
 				console.error("No recipes returned from server", data);
+				setError(data.error || "No recipes came back. Try again.");
 			}
 		})
 		.catch(err => {
 			console.error("Error fetching recipes:", err);
-		});
+			setError("Could not reach the server. Is the backend running on port 3001?");
+		})
+		.finally(() => setLoading(false));
 	}
 
 	function generatetestRecipe() {
@@ -242,7 +249,8 @@ export default function Generate({pantryItems, time, difficulty, budget, allerge
 					)}
 				</div>
 
-				<button className="btn-primary" onClick={generateRecipe}>Generate with ${budget} budget and {difficulty.toLowerCase()} difficulty within {Math.floor(time / 60)} {Math.floor(time / 60) == 1 ? "hour" : "hours"} and {time % 60} {time % 60 == 1 ? "minute" : "minutes"}</button>
+				<button className="btn-primary" onClick={generateRecipe} disabled={loading}>{loading ? "Generating..." : <>Generate with ${budget} budget and {difficulty.toLowerCase()} difficulty within {Math.floor(time / 60)} {Math.floor(time / 60) == 1 ? "hour" : "hours"} and {time % 60} {time % 60 == 1 ? "minute" : "minutes"}</>}</button>
+				{error && <p style={{color: "crimson"}}>{error}</p>}
 
 			</div>
 

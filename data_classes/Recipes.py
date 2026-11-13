@@ -10,7 +10,7 @@ class Recipe:
 	#List of ingredients, where each ingredient is (name, quantity, unit)
 	ingredients: List[Tuple[str, float, str]]
 	cook_minutes: int
-	price_estimate_usd = float
+	price_estimate_usd: float
 	cuisine: str
 	tags: Set[str]
 	appliances: Set[str]

@@ -52,6 +52,49 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage: storage });
 
+// Find a Python interpreter that works on Windows, Mac and Linux.
+// Set PYTHON_PATH in .env to override.
+function resolvePython() {
+    if (process.env.PYTHON_PATH) return process.env.PYTHON_PATH;
+    const candidates = [
+        path.resolve(__dirname, '../venv/Scripts/python.exe'), // Windows venv at repo root
+        path.resolve(__dirname, '../venv/bin/python'),         // Mac/Linux venv at repo root
+        path.resolve(__dirname, 'venv/Scripts/python.exe'),
+        path.resolve(__dirname, 'venv/bin/python'),
+    ];
+    for (const c of candidates) {
+        if (fs.existsSync(c)) return c;
+    }
+    return process.platform === 'win32' ? 'python' : 'python3';
+}
+
+// Run a Python script, send `input` as JSON on stdin, resolve with parsed JSON from stdout.
+function runPython(scriptPath, args = [], input = null) {
+    return new Promise((resolve, reject) => {
+        const python = spawn(resolvePython(), [scriptPath, ...args], {
+            cwd: path.resolve(__dirname, '..'),
+            env: process.env,
+        });
+        let output = '';
+        let error = '';
+        python.stdout.on('data', (data) => { output += data.toString(); });
+        python.stderr.on('data', (data) => { error += data.toString(); });
+        python.on('error', (err) => reject(new Error(`Could not start Python: ${err.message}`)));
+        python.on('close', (code) => {
+            if (code !== 0) return reject(new Error(error || `Python exited with code ${code}`));
+            // Use the last non-empty line so stray prints don't break JSON parsing
+            const lines = output.trim().split(/\r?\n/).filter(Boolean);
+            try {
+                resolve(JSON.parse(lines[lines.length - 1] ?? 'null'));
+            } catch (e) {
+                reject(new Error(`Could not parse Python output: ${output}`));
+            }
+        });
+        if (input !== null) python.stdin.write(JSON.stringify(input));
+        python.stdin.end();
+    });
+}
+
 async function connect() {
     try {
         await mongoose.connect(uri);
@@ -125,9 +168,16 @@ class UserProfileClass {
   }
 
 connect();
-app.get('/users/:username/verify-password', async (req, res) => {
-  const user = await UserProfile.findByUsername(req.params.username)
-  return verifyPassword(req.body,user.password);
+app.post('/users/:username/verify-password', async (req, res) => {
+  try {
+    const user = await UserProfile.findByUsername(req.params.username);
+    if (!user) return res.status(404).json({ error: "Could not find user" });
+    const valid = await verifyPassword(req.body?.password ?? '', user.password);
+    return res.status(200).json({ valid });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ error: "Failed to verify password" });
+  }
 });
 // Define your schema (e.g., for a 'Product' model)
 const userProfileSchema = new mongoose.Schema({
@@ -140,6 +190,7 @@ const userProfileSchema = new mongoose.Schema({
     appliances: [String],
     recipeRatings: { type: Map, of: Number },
     ingredients:   { type: Map, of: Number },
+    ingredientAddedAt: { type: Map, of: Date, default: {} },
   }, {
     timestamps: true,
     collection: 'User Profile'
@@ -323,6 +374,46 @@ app.get('/user-ingredients/:user', async (req, res) => {
     }
 });
 
+// Rough fridge/pantry shelf life in days. Anything not listed uses DEFAULT_SHELF_LIFE_DAYS.
+const SHELF_LIFE_DAYS = {
+  'milk': 7, 'chicken': 2, 'chicken breast': 2, 'beef': 3, 'ground beef': 2, 'fish': 2, 'salmon': 2,
+  'egg': 21, 'cheese': 21, 'yogurt': 14, 'bread': 7, 'lettuce': 7, 'spinach': 5, 'tomato': 7,
+  'banana': 5, 'strawberry': 4, 'berry': 4, 'apple': 30, 'carrot': 21, 'broccoli': 5,
+  'onion': 30, 'potato': 30, 'garlic': 60, 'rice': 365, 'pasta': 365, 'flour': 180, 'bean': 365,
+};
+const DEFAULT_SHELF_LIFE_DAYS = 10;
+
+function shelfLifeFor(ingredient) {
+  const key = pluralize.singular(String(ingredient).trim().toLowerCase());
+  if (SHELF_LIFE_DAYS[key] !== undefined) return SHELF_LIFE_DAYS[key];
+  const partial = Object.keys(SHELF_LIFE_DAYS).find(k => key.includes(k));
+  return partial ? SHELF_LIFE_DAYS[partial] : DEFAULT_SHELF_LIFE_DAYS;
+}
+
+// GET ingredients that expire within ?days=N (default 3), soonest first
+app.get('/expiring/:user', async (req, res) => {
+  try {
+    const user = await UserProfile.findByUsername(req.params.user);
+    if (!user) return res.status(404).json({ error: "Could not find user" });
+    const withinDays = Number(req.query.days ?? 3);
+    const now = Date.now();
+    const DAY = 24 * 60 * 60 * 1000;
+    const items = [];
+    for (const [name, qty] of user.ingredients ?? new Map()) {
+      const added = user.ingredientAddedAt?.get(name);
+      if (!added) continue; // added before dates were tracked
+      const expiresOn = new Date(new Date(added).getTime() + shelfLifeFor(name) * DAY);
+      const daysLeft = Math.ceil((expiresOn.getTime() - now) / DAY);
+      if (daysLeft <= withinDays) items.push({ name, quantity: qty, expiresOn, daysLeft });
+    }
+    items.sort((a, b) => a.daysLeft - b.daysLeft);
+    return res.status(200).json(items);
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ error: "Failed to check expiring items" });
+  }
+});
+
 // GET a single item by ingredient
 app.get('/user-ingredients/:user/:ingredient', async (req, res) => {
   try {
@@ -372,6 +463,13 @@ app.patch('/user-ingredients/:user', async (req, res) => {
             user.ingredients.set(key, value);
             console.log(`Added ${value} ${key}`);
           }
+          // Track when stock was last added (used by /expiring)
+          user.ingredientAddedAt ??= new Map();
+          if (value > 0) {
+            user.ingredientAddedAt.set(key, new Date());
+          } else if (!user.ingredients.has(key)) {
+            user.ingredientAddedAt.delete(key);
+          }
         }
         // Save changes to DB
         await user.save();
@@ -397,53 +495,35 @@ app.post('/ocr', upload.single('file'), async (req, res) => {
         console.log("absolute file path:", absoluteFilePath);
         console.log("script path:", scriptPath);
 
-        // Call the Python OCR script
-        const pythonPath = path.resolve(__dirname, 'venv/bin/python');
-        const python = spawn(pythonPath, [scriptPath, JSON.stringify(user)]);
-
-        
-        let output = '';
-        let error = '';
-        
-
-        python.stdout.on('data', (data) => {
-            output += data.toString();
-        });
-
-        python.stderr.on('data', (data) => {
-            error += data.toString();
-        });
-
-        python.on('close', (code) => {
-            // Clean up uploaded file
+        // Call the Python OCR script with the uploaded image path
+        try {
+            const result = await runPython(scriptPath, [absoluteFilePath]);
+            return res.status(200).json(result ?? {});
+        } catch (err) {
+            console.error("Python script error:", err.message);
+            return res.status(500).json({ error: "OCR processing failed", details: err.message });
+        } finally {
             fs.unlink(absoluteFilePath, (err) => {
                 if (err && err.code !== 'ENOENT') console.error("Error deleting file:", err);
             });
-
-            if (code !== 0) {
-                console.error("Python script error:", error);
-                return res.status(500).json({ 
-                    error: "OCR processing failed",
-                    details: error 
-                });
-            }
-
-            try {
-                console.log("output:", output)
-                const result = JSON.parse(output);
-                return res.status(200).json(result);
-            } catch (parseError) {
-                console.error("Error parsing Python output:", output);
-                return res.status(500).json({ 
-                    error: "Failed to parse OCR results",
-                    output: output 
-                });
-            }
-        });
+        }
     } catch (error) {
         console.error("OCR endpoint error:", error);
         return res.status(500).json({ error: "OCR processing failed" });
     }
+});
+
+// POST generate recipes with the Gemini pipeline
+// BODY: { username, pantryItems, time, difficulty, budget, allergens, appliances, cuisines }
+app.post('/generate_recipes', async (req, res) => {
+  try {
+    const scriptPath = path.resolve(__dirname, '../llm_pipeline/generate_cli.py');
+    const recipes = await runPython(scriptPath, [], req.body ?? {});
+    return res.status(200).json({ recipes: recipes ?? [] });
+  } catch (error) {
+    console.error("Recipe generation error:", error.message);
+    return res.status(500).json({ error: "Recipe generation failed", details: error.message });
+  }
 });
 
 app.post('/login', async (req, res) => {
@@ -458,8 +538,8 @@ app.post('/login', async (req, res) => {
     if (!user) {
       return res.status(401).json({ error: "Invalid username or password" });
     }
-    const verified = await verifyPassword(user.password, password);
-    if (verified) {
+    const verified = await verifyPassword(password, user.password);
+    if (!verified) {
       return res.status(401).json({ error: "Invalid username or password" });
     }
     

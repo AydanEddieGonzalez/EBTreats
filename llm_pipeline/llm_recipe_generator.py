@@ -4,15 +4,20 @@ from data_classes.UserProfile import UserProfile
 import json
 from data_classes.Recipes import Recipe
 import os
+import sys
 from dotenv import load_dotenv
 
 class RecipeLLM:
-    def __init__(self, api_key: str):
-        load_dotenv()
-        my_api_key = os.getenv("MY_API_KEY")
+    def __init__(self, api_key: str = None):
+        load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "backend", ".env"))
+        my_api_key = api_key or os.getenv("MY_API_KEY")
+        if not my_api_key:
+            raise ValueError("Missing MY_API_KEY (Gemini). Put it in backend/.env.")
         self.client = genai.Client(api_key=my_api_key)
 
-    def build_user_prompt(self, user: UserProfile, n_recipes: int = 1):
+    def build_user_prompt(self, user: UserProfile, n_recipes: int = 1, pantry_items=None, difficulty=None):
+        pantry_line = f"Ingredients already in the pantry (use these first): {', '.join(pantry_items)}" if pantry_items else ""
+        difficulty_line = f"Cooking skill level: {difficulty}" if difficulty else ""
         prompt = f"""
             You are a recipe generator. Create {n_recipes} recipes personalized for the following user:
             User ID: {user.user_id}
@@ -20,7 +25,9 @@ class RecipeLLM:
             Cuisine Preferences: {', '.join(user.cuisine_preferences) if user.cuisine_preferences else 'None'}
             Budget (USD): {user.budget_usd:.2f}
             Time Available (minutes): {user.time_available}
-            Available Appliances: {', '.join(user.appliances)}
+            Available Appliances: {', '.join(user.appliances) if user.appliances else 'Any'}
+            {pantry_line}
+            {difficulty_line}
 
             Guidelines:
             - Respect all dietary restrictions.
@@ -39,13 +46,16 @@ class RecipeLLM:
             Cuisine Type
             Tags: list of strings
 
-            Provide each recipe as a separate JSON object, separated by semicolons. Do not use markdown formatting.
+            Return a JSON array of recipe objects using exactly these keys:
+            "Title", "Ingredients", "Procedure", "Appliances", "Estimated Cost", "Estimated Time", "Cuisine Type", "Tags".
+            Do not use markdown formatting.
             """
         return prompt.strip()
 
-    def generate_recipes(self, user: UserProfile, n_recipes: int = 3):
-        prompt = self.build_user_prompt(user, n_recipes)
-        print("Thinking...")
+    def generate_recipes(self, user: UserProfile, n_recipes: int = 3, pantry_items=None, difficulty=None):
+        prompt = self.build_user_prompt(user, n_recipes, pantry_items, difficulty)
+        # log to stderr so stdout stays clean JSON for the Express server
+        print("Thinking...", file=sys.stderr)
         response = self.client.models.generate_content(
             model="gemini-2.5-flash",
             contents=prompt,
@@ -54,13 +64,13 @@ class RecipeLLM:
                 thinking_config=types.ThinkingConfig(thinking_budget=0)
             ),
         )
-        print(response.text)
-
         try:
             raw_recipes = json.loads(response.text)
         except Exception as e:
-            print("Failed to parse JSON:", e)
+            print("Failed to parse JSON:", e, file=sys.stderr)
             return []
+        if isinstance(raw_recipes, dict):  # a single recipe comes back as an object, not a list
+            raw_recipes = [raw_recipes]
 
         recipes = []
         for r in raw_recipes[:n_recipes]:
@@ -69,7 +79,7 @@ class RecipeLLM:
                 recipe_obj = self.parse_json(r)
                 recipes.append(recipe_obj.__dict__)
             except Exception as e:
-                print("Failed to parse recipe:", e)
+                print("Failed to parse recipe:", e, file=sys.stderr)
         return recipes
 
 

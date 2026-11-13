@@ -10,11 +10,16 @@ from deskew import determine_skew
 import sys
 import json
 
-load_dotenv()
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+load_dotenv(os.path.join(SCRIPT_DIR, ".env"))
 
-API_KEY = os.getenv("API_KEY")
+# USDA FoodData Central key (https://fdc.nal.usda.gov/api-key-signup). API_KEY kept for older .env files.
+API_KEY = os.getenv("USDA_API_KEY") or os.getenv("API_KEY")
 if not API_KEY:
-    raise RuntimeError("Missing API_KEY. Put it in a .env file in the project root.")
+    raise RuntimeError("Missing USDA_API_KEY. Put it in backend/.env (see backend/.env.example).")
+
+# cleaned image is written here; absolute so it works no matter where the script is run from
+OUTPUT_IMAGE = os.path.join(SCRIPT_DIR, "test_images", "test_output.png")
 
 
 # path to receipt image
@@ -70,11 +75,19 @@ def clean_image(infile):
 
     # applies the otsu contrast threshold to automatically decide thresholds per pixel rather than hard coding a value
     final = otsu_contrast(rotated_gray)
-    cv.imwrite("backend/test_images/test_output.png", final) # puts the final image in test_output.png
+    os.makedirs(os.path.dirname(OUTPUT_IMAGE), exist_ok=True)
+    cv.imwrite(OUTPUT_IMAGE, final) # puts the final image in test_output.png
     return final
 
 # If you don't have tesseract executable in your PATH, include the following:
-pyt.pytesseract.tesseract_cmd = r'/opt/homebrew/bin/tesseract'
+# Set TESSERACT_CMD in .env if tesseract isn't on your PATH
+# (Windows default: C:\\Program Files\\Tesseract-OCR\\tesseract.exe, Mac Homebrew: /opt/homebrew/bin/tesseract)
+if os.getenv("TESSERACT_CMD"):
+    pyt.pytesseract.tesseract_cmd = os.getenv("TESSERACT_CMD")
+elif os.name == "nt" and os.path.exists(r"C:\Program Files\Tesseract-OCR\tesseract.exe"):
+    pyt.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+elif os.path.exists("/opt/homebrew/bin/tesseract"):
+    pyt.pytesseract.tesseract_cmd = "/opt/homebrew/bin/tesseract"
 
 # searches the usda database for the word, returns True if it finds a result for the food, False otherwise
 def is_food_usda(name: str, api_key: str, min_score: int = 50) -> bool:
@@ -88,7 +101,7 @@ def is_food_usda(name: str, api_key: str, min_score: int = 50) -> bool:
     return any(f.get("description") for f in foods)
 
 def decide_receipt_format(string):
-    lines = receipt_text.splitlines()
+    lines = string.splitlines()
     format1regex = re.compile(r"^(?=.*\b\d+(?:\.\d+)?\b)(?=.*[A-Za-z]).+$")
     format2regex = re.compile(r"^([A-Za-z\s]+).*(\d+\.\d{2})")
     # endsInPriceRegex = re.compile(r"(\d+\.\d{2})$")
@@ -101,6 +114,8 @@ def decide_receipt_format(string):
             elif format2regex.match(line):
                 return no_quantity_format(string)
             # elif "@" in line:
+    # no recognizable food lines: return an empty result instead of None
+    return {}
                 
 # takes the entire receipt text and extracts the ingredients and their quantities
 def item_quant_on_same_line_format(string):
@@ -127,7 +142,8 @@ def item_quant_on_same_line_format(string):
                 if (word in ing.lower()) or (quant > 100) or (quant <= 0) or ing == "":
                     break
             else:
-                ingredients.update({ing.lower(): (ingredients.get(ing.lower(), 0) + quant, "")}) # append to ingredients
+                key = ing.strip().lower()
+                ingredients.update({key: (ingredients.get(key, (0, ""))[0] + quant, "")}) # append to ingredients
             
     return ingredients
 
@@ -135,9 +151,7 @@ def no_quantity_format(string):
     line_array = []
     ingredients = {}    
     for line in string.split('\n'):
-        print(line + string(re.compile(r"^([A-Za-z\s]+).*(\d+\.\d{2})").match(line)))
         if re.compile(r"^([A-Za-z\s]+).*(\d+\.\d{2})").match(line):
-            print(line)
             line_array.append(line)
     
     for curr in line_array:
@@ -150,14 +164,15 @@ def no_quantity_format(string):
                 if (word in ing.lower()) or ing == "":
                     break
             else:
-                ingredients.update({ing.lower(): ingredients.get(ing.lower(), 0) + 1})
+                # same (quantity, unit) shape as item_quant_on_same_line_format so the frontend can read [0]
+                key = ing.strip().lower()
+                ingredients.update({key: (ingredients.get(key, (0, ""))[0] + 1, "")})
 
     return ingredients
 
 def trader_joes_format(string):
     line_array = []
     ingredients = {}
-    print(string)    
     for curr in string.split('\n'):
         searchRegex = re.compile(r"([\D]+)\d*")
         match = re.search(searchRegex, curr)
@@ -188,7 +203,7 @@ def show_data_as_table(dictionary):
         print(f"{ing:<{w1}} | {q:<{w2}}")
 
 clean_image(img_path)
-receipt_text = pyt.image_to_string('backend/test_images/test_output.png')
+receipt_text = pyt.image_to_string(OUTPUT_IMAGE)
 extracted_ingredients = decide_receipt_format(receipt_text)
 print(json.dumps(extracted_ingredients))
 #extracted_ingredients = trader_joes_format(receipt_text)
