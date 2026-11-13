@@ -7,6 +7,10 @@ import os
 import sys
 from dotenv import load_dotenv
 
+load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "backend", ".env"))
+# Model is configurable in backend/.env; Google retires old models for new users
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
+
 class RecipeLLM:
     def __init__(self, api_key: str = None):
         load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "backend", ".env"))
@@ -57,11 +61,11 @@ class RecipeLLM:
         # log to stderr so stdout stays clean JSON for the Express server
         print("Thinking...", file=sys.stderr)
         response = self.client.models.generate_content(
-            model="gemini-2.5-flash",
+            model=GEMINI_MODEL,
             contents=prompt,
             config=types.GenerateContentConfig(
                 responseMimeType="application/json",
-                thinking_config=types.ThinkingConfig(thinking_budget=0)
+                thinking_config=types.ThinkingConfig(thinking_level="low")
             ),
         )
         try:
@@ -106,11 +110,11 @@ class RecipeLLM:
         prompt = self.build_user_prompt(user)
         print("Thinking...")
         response = self.client.models.generate_content(
-            model="gemini-2.5-flash",
+            model=GEMINI_MODEL,
             contents=prompt,
             config=types.GenerateContentConfig(
                 responseMimeType="application/json",
-                thinking_config=types.ThinkingConfig(thinking_budget=0)
+                thinking_config=types.ThinkingConfig(thinking_level="low")
             ),
         )
         print(response.text)

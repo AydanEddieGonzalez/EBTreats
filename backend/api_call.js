@@ -1,5 +1,6 @@
 import pluralize from 'pluralize';
  import { getDb } from './mongodb.js';
+import { registerStoreRoutes } from './stores.js';
 import 'dotenv/config';
 
 import express from 'express';
@@ -562,6 +563,9 @@ app.post('/login', async (req, res) => {
 });
 
 
+
+// SNAP store lookup: GET /stores?lat=..&lng=..&radius=..  (see stores.js)
+registerStoreRoutes(app);
 
 // Start the server
 app.listen(port, () => {

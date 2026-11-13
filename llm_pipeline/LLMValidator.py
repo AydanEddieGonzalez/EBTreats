@@ -1,6 +1,6 @@
 from data_classes.UserProfile import UserProfile
 from data_classes.Recipes import Recipe
-from llm_pipeline.llm_recipe_generator import RecipeLLM
+from llm_pipeline.llm_recipe_generator import RecipeLLM, GEMINI_MODEL
 import json
 
 INGREDIENT_THRESHOLD = 0.75
@@ -42,7 +42,7 @@ class Validator:
         Output ONLY JSON.
         """
         response = client.models.generate_content(
-            model="gemini-2.5-flash",
+            model=GEMINI_MODEL,
             contents=prompt,
         )
         try:

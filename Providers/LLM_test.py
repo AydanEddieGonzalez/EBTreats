@@ -14,10 +14,10 @@ class Model():
 
 	def generate_recipe(self, UserProfile):
 		response = self.client.models.generate_content(
-			model="gemini-2.5-flash",
+			model=os.getenv("GEMINI_MODEL", "gemini-3.8-flash"),
     		contents="Generate a recipe",
     		config=types.GenerateContentConfig( #configuration for the generation 
-        		thinking_config=types.ThinkingConfig(thinking_budget=0) # Disables thinking
+        		thinking_config=types.ThinkingConfig(thinking_level="low")
     		),
 		)
 		return response.text 

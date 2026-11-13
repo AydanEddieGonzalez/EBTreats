@@ -1,3 +1,4 @@
+import os
 from data_classes.UserProfile import UserProfile
 from data_classes.Recipes import Recipe
 from data_classes.UserPantry import Pantry
@@ -31,11 +32,11 @@ class Validator:
             regen_prompt = self._build_regenerate_prompt(user, feedback_summary)
 
             response = self.recipe_llm.client.models.generate_content(
-                model="gemini-2.5-flash",
+                model=os.getenv("GEMINI_MODEL", "gemini-3.8-flash"),
                 contents=regen_prompt,
                 config=types.GenerateContentConfig(
                     responseMimeType="application/json",
-                    thinking_config=types.ThinkingConfig(thinking_budget=0)
+                    thinking_config=types.ThinkingConfig(thinking_level="low")
                 ),
             )
 
