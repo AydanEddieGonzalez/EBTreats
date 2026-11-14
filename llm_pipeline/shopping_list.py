@@ -32,11 +32,11 @@ import sys
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from llm_pipeline.gemini import generate_json, make_client  # noqa: E402
+from llm_pipeline.llm import generate_json, make_client  # noqa: E402
 
 CATEGORIES = ["produce", "protein", "dairy", "grains", "pantry", "frozen", "other"]
 
-# JSON schema the model must follow (sent to Gemini as response_json_schema).
+# JSON schema the model must follow (sent to Claude as the respond tool schema).
 SHOPPING_LIST_SCHEMA = {
     "type": "object",
     "properties": {

@@ -1,15 +1,12 @@
-from google import genai
-from google.genai import types
 from data_classes.UserProfile import UserProfile
 import json
 from data_classes.Recipes import Recipe
 import os
 import sys
 from dotenv import load_dotenv
+from llm_pipeline.llm import make_client, generate_json_array
 
 load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "backend", ".env"))
-# Model is configurable in backend/.env; Google retires old models for new users
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
 
 
 def _ingredient_name(ing) -> str:
@@ -51,10 +48,8 @@ def analyze_meal_prep(recipes, shopping_list) -> dict:
 class RecipeLLM:
     def __init__(self, api_key: str = None):
         load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "backend", ".env"))
-        my_api_key = api_key or os.getenv("MY_API_KEY")
-        if not my_api_key:
-            raise ValueError("Missing MY_API_KEY (Gemini). Put it in backend/.env.")
-        self.client = genai.Client(api_key=my_api_key)
+        # Claude client (see llm_pipeline/llm.py)
+        self.client = make_client(api_key)
 
     def build_user_prompt(self, user: UserProfile, n_recipes: int = 1, pantry_items=None, difficulty=None):
         pantry_line = f"Ingredients already in the pantry (use these first): {', '.join(pantry_items)}" if pantry_items else ""
@@ -97,31 +92,8 @@ class RecipeLLM:
         prompt = self.build_user_prompt(user, n_recipes, pantry_items, difficulty)
         # log to stderr so stdout stays clean JSON for the Express server
         print("Thinking...", file=sys.stderr)
-        response = self.client.models.generate_content(
-            model=GEMINI_MODEL,
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                responseMimeType="application/json",
-                thinking_config=types.ThinkingConfig(thinking_level="low")
-            ),
-        )
-        try:
-            raw_recipes = json.loads(response.text)
-        except Exception as e:
-            print("Failed to parse JSON:", e, file=sys.stderr)
-            return []
-        if isinstance(raw_recipes, dict):  # a single recipe comes back as an object, not a list
-            raw_recipes = [raw_recipes]
-
-        recipes = []
-        for r in raw_recipes[:n_recipes]:
-            try:
-                # Pass the dict directly; no json.dumps needed
-                recipe_obj = self.parse_json(r)
-                recipes.append(recipe_obj.__dict__)
-            except Exception as e:
-                print("Failed to parse recipe:", e, file=sys.stderr)
-        return recipes
+        raw_recipes = generate_json_array(self.client, prompt)
+        return self._parse_recipe_list(raw_recipes, n_recipes)
 
 
     def build_meal_prep_prompt(self, user: UserProfile, shopping_list, n_recipes: int = 3, difficulty=None, pantry_items=None):
@@ -175,15 +147,8 @@ class RecipeLLM:
         best = ([], analyze_meal_prep([], shopping_list))
         for attempt in range(max_attempts):
             print(f"Planning meal prep (attempt {attempt + 1})...", file=sys.stderr)
-            response = self.client.models.generate_content(
-                model=GEMINI_MODEL,
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    responseMimeType="application/json",
-                    thinking_config=types.ThinkingConfig(thinking_level="low")
-                ),
-            )
-            recipes = self._parse_recipe_list(response.text, n_recipes)
+            raw_recipes = generate_json_array(self.client, prompt)
+            recipes = self._parse_recipe_list(raw_recipes, n_recipes)
             analysis = analyze_meal_prep(recipes, shopping_list)
             if len(recipes) >= 2 and analysis["sharedIngredients"]:
                 return recipes, analysis
@@ -191,11 +156,14 @@ class RecipeLLM:
                 best = (recipes, analysis)
         return best
 
-    def _parse_recipe_list(self, text, n_recipes):
-        try:
-            raw_recipes = json.loads(text)
-        except Exception as e:
-            print("Failed to parse JSON:", e, file=sys.stderr)
+    def _parse_recipe_list(self, raw_recipes, n_recipes):
+        if isinstance(raw_recipes, str):
+            try:
+                raw_recipes = json.loads(raw_recipes)
+            except Exception as e:
+                print("Failed to parse JSON:", e, file=sys.stderr)
+                return []
+        if not raw_recipes:
             return []
         if isinstance(raw_recipes, dict):
             raw_recipes = [raw_recipes]
@@ -224,26 +192,3 @@ class RecipeLLM:
             appliances=appliances,
             procedure=procedure
         )
-
-    
-    """def generate_recipes(self, user: UserProfile) -> Recipe:
-        prompt = self.build_user_prompt(user)
-        print("Thinking...")
-        response = self.client.models.generate_content(
-            model=GEMINI_MODEL,
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                responseMimeType="application/json",
-                thinking_config=types.ThinkingConfig(thinking_level="low")
-            ),
-        )
-        print(response.text)
-        recipe_obj = self.parse_json(response.text)
-        return [recipe_obj]
-    
-    def parse_json(self, response) -> Recipe:
-        r = json.loads(response)
-        return Recipe(r["Title"], r["Ingredients"], r["Estimated Time"], r["Estimated Cost"], r["Cuisine Type"], r["Tags"], "", "")
-    """
-
-

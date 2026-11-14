@@ -1,23 +1,12 @@
-from google import genai
-from google.genai import types
-from data_classes.Recipes import Recipe
-from data_classes.UserProfile import UserProfile
+"""Quick check that the Claude key in backend/.env works. Run from the repo root:
+    python -m Providers.LLM_test
+"""
+from llm_pipeline.llm import make_client, generate_json
 
-import os
-api_key = os.getenv("MY_API_KEY")
-
-class Model():
-	# change this later
-
-	def __init__(self):
-		self.client = genai.Client(api_key=api_key)
-
-	def generate_recipe(self, UserProfile):
-		response = self.client.models.generate_content(
-			model=os.getenv("GEMINI_MODEL", "gemini-3.8-flash"),
-    		contents="Generate a recipe",
-    		config=types.GenerateContentConfig( #configuration for the generation 
-        		thinking_config=types.ThinkingConfig(thinking_level="low")
-    		),
-		)
-		return response.text 
+if __name__ == "__main__":
+    answer = generate_json(
+        make_client(),
+        "Suggest one cheap healthy recipe title.",
+        {"type": "object", "properties": {"title": {"type": "string"}}, "required": ["title"]},
+    )
+    print(answer)

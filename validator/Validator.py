@@ -3,6 +3,7 @@ from data_classes.UserProfile import UserProfile
 from data_classes.Recipes import Recipe
 from data_classes.UserPantry import Pantry
 from llm_pipeline.llm_recipe_generator import RecipeLLM
+from llm_pipeline.llm import generate_json_array
 
 INGREDIENT_THRESHOLD = 0.75
 NUM_RECIPES = 5
@@ -31,16 +32,9 @@ class Validator:
             feedback_summary = self._build_feedback_summary(invalid_feedback)
             regen_prompt = self._build_regenerate_prompt(user, feedback_summary)
 
-            response = self.recipe_llm.client.models.generate_content(
-                model=os.getenv("GEMINI_MODEL", "gemini-3.8-flash"),
-                contents=regen_prompt,
-                config=types.GenerateContentConfig(
-                    responseMimeType="application/json",
-                    thinking_config=types.ThinkingConfig(thinking_level="low")
-                ),
-            )
-
-            new_recipes = self.recipe_llm.parse_json(response.text)
+            # see llm_pipeline/llm.py
+            raw = generate_json_array(self.recipe_llm.client, regen_prompt) or []
+            new_recipes = [self.recipe_llm.parse_json(r) for r in raw]
 
             for recipe in new_recipes:
                 is_valid, feedback = self._is_valid_recipe(user, pantry, recipe)
