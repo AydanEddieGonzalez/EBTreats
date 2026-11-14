@@ -16,6 +16,10 @@
 // organization running the incentive there (about 1,300 stores nationwide). Incentive_Program
 // is blank for almost every store and only ever says "Waiver", so it is not used for ranking.
 
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
 const SNAP_URL =
   'https://services1.arcgis.com/RLQu0rK7h4kbsBq5/arcgis/rest/services/snap_retailer_location_data/FeatureServer/0/query';
 
