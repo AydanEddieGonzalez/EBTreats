@@ -99,3 +99,10 @@ export function findStores({ lat, lng, zip, radius }) {
   }
   return request(`/stores?${params}`).then((body) => body.stores ?? []);
 }
+
+// Goal chat (backend/goalChat.js). messages: [{ role: 'user' | 'assistant', text }], last one from the user.
+// Returns { reply, goals, done, saved }.
+export const goalChat = (body) => request('/goal-chat', sendJson('POST', body));
+
+// { goals: [...] } saved on the user's profile
+export const getGoals = (username) => request(`/users/${userPath(username)}/goals`).then((body) => body.goals ?? []);

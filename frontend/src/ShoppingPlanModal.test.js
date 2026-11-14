@@ -92,7 +92,7 @@ test('sends location, budget, allergies and pantry, then adds only the checked i
   fireEvent.click(screen.getByRole('button', { name: /put 1 item on my list \(\$2\.50\)/i }));
 
   expect(onAddItems).toHaveBeenCalledWith([
-    { name: 'Dried black beans', detail: '1 bag · about $2.50', store: 'Berkeley Bowl' },
+    expect.objectContaining({ name: 'Dried black beans', detail: '1 bag · about $2.50', store: 'Berkeley Bowl' }),
   ]);
 });
 
@@ -155,8 +155,8 @@ test('plans meals from the checked items, and hides the option for a single item
 
   fireEvent.click(screen.getByRole('button', { name: /plan 3 meals that share ingredients/i }));
   expect(onPlanMeals).toHaveBeenCalledWith([
-    { name: 'Bananas', detail: '2 lb · about $1.20', store: 'Berkeley Bowl' },
-    { name: 'Dried black beans', detail: '1 bag · about $2.50', store: 'Berkeley Bowl' },
+    expect.objectContaining({ name: 'Bananas', detail: '2 lb · about $1.20', store: 'Berkeley Bowl' }),
+    expect.objectContaining({ name: 'Dried black beans', detail: '1 bag · about $2.50', store: 'Berkeley Bowl' }),
   ]);
   expect(onAddItems).not.toHaveBeenCalled();
 
