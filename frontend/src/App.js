@@ -54,6 +54,9 @@ function greeting() {
 
 const capitalize = (s) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : '');
 
+// Pantry items that expire within this many days get a "use this first" reminder.
+const USE_FIRST_DAYS = 7;
+
 function isTypingTarget(target) {
   return target instanceof Element
     && (target.closest('input, textarea, select, [contenteditable="true"]') || target.closest('.leaflet-container'));
@@ -74,6 +77,8 @@ export default function App() {
   const [prefs, setPrefs] = useState(() => ({ ...DEFAULT_PREFS, ...load('prefs', {}) }));
   const [pantry, setPantry] = useState(() => (load('user', '') ? {} : load('guestPantry', {})));
   const [expiring, setExpiring] = useState([]);
+  // When a guest added each pantry item ({ [name]: ISO date }); signed-in users have this on the server.
+  const [guestAddedAt, setGuestAddedAt] = useState(() => load('guestAddedAt', {}));
   const [list, setList] = useState(() => load(`list.${load('user', '') || 'guest'}`, []));
   const [notes, setNotes] = useState(() => load(`notes.${load('user', '') || 'guest'}`, []));
   const [recipes, setRecipes] = useState(() => load('recipes', []));
@@ -110,13 +115,31 @@ export default function App() {
   useEffect(() => save('recipes', recipes), [recipes]);
   useEffect(() => save('mealPlan', mealPlan), [mealPlan]);
   useEffect(() => { if (!username) save('guestPantry', pantry); }, [pantry, username]);
+  useEffect(() => save('guestAddedAt', guestAddedAt), [guestAddedAt]);
   useEffect(() => save(`list.${owner}`, list), [list, owner]);
   useEffect(() => save(`notes.${owner}`, notes), [notes, owner]);
 
   const refreshExpiring = useCallback((name) => {
     if (!name) return setExpiring([]);
-    api.getExpiring(name, 3).then(setExpiring).catch(() => setExpiring([]));
+    api.getExpiring(name, USE_FIRST_DAYS).then(setExpiring).catch(() => setExpiring([]));
   }, []);
+
+  // Guests: work out "use this first" from the dates kept in this browser.
+  useEffect(() => {
+    if (username) return undefined;
+    const items = Object.entries(pantry)
+      .filter(([name, qty]) => qty > 0 && guestAddedAt[name])
+      .map(([name, qty]) => ({ name, quantity: qty, addedAt: guestAddedAt[name] }));
+    if (!items.length) {
+      setExpiring([]);
+      return undefined;
+    }
+    let cancelled = false;
+    api.getExpiringFor(items, USE_FIRST_DAYS)
+      .then((rows) => { if (!cancelled) setExpiring(rows); })
+      .catch(() => { if (!cancelled) setExpiring([]); });
+    return () => { cancelled = true; };
+  }, [username, pantry, guestAddedAt]);
 
   const logOut = useCallback(() => {
     setUsername('');
@@ -201,6 +224,12 @@ export default function App() {
         });
         return next;
       });
+      // Remember when stock was added, so guests get "use this first" reminders too.
+      const addedNow = Object.entries(changes).filter(([, delta]) => delta > 0).map(([name]) => name);
+      if (addedNow.length) {
+        const stamp = new Date().toISOString();
+        setGuestAddedAt((current) => ({ ...current, ...Object.fromEntries(addedNow.map((name) => [name, stamp])) }));
+      }
     }
     return true;
   }, [username, notify, refreshExpiring]);
@@ -263,6 +292,8 @@ export default function App() {
       .sort((a, b) => (a.daysLeft ?? 999) - (b.daysLeft ?? 999) || a.name.localeCompare(b.name)),
     [pantry, expiringByName],
   );
+  // The three pantry items to cook with first (pantryRows is sorted soonest first).
+  const useFirst = pantryRows.filter((row) => row.daysLeft != null).slice(0, 3);
 
   // ---- recipes ----------------------------------------------------------------
 
@@ -459,6 +490,15 @@ export default function App() {
                   <span><i className="dot have" /> Already have</span>
                 </div>
               </div>
+
+              {useFirst.length > 0 && (
+                <div className="use-first" role="status">
+                  <strong><Icon name="clock" size={14} /> Use this first</strong>
+                  <span>
+                    {useFirst.map((row) => `${capitalize(row.name)} (${row.daysLeft <= 0 ? 'today' : `${row.daysLeft} ${row.daysLeft === 1 ? 'day' : 'days'}`})`).join(', ')}
+                  </span>
+                </div>
+              )}
 
               <div className="items">
                 {list.length === 0 && pantryRows.length === 0 && (

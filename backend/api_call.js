@@ -3,7 +3,7 @@ import pluralize from 'pluralize';
  import { registerStoreRoutes, registerStoreFallbackRoutes } from './stores.js';
  import { registerShoppingPlanRoutes } from './shoppingPlan.js';
  import { registerGoalChatRoutes } from './goalChat.js';
- import { shelfLifeFor, pantryNamesFor, expiringItemsFor } from './pantryMapping.js';
+ import { shelfLifeFor, pantryNamesFor, expiringItemsFor, expiringFromDates } from './pantryMapping.js';
 import 'dotenv/config';
 
 import express from 'express';
@@ -440,6 +440,18 @@ app.get('/shopping-pantry/:user', async (req, res) => {
     console.error(error);
     return res.status(500).json({ error: "Failed to load pantry for shopping list" });
   }
+});
+
+// POST "use this first" for a pantry that is not stored on the server (signed-out guests).
+// BODY: { items: [{ name, addedAt, quantity? }], days? }   (days defaults to 3)
+// Returns the same shape as GET /expiring: [{ name, quantity, expiresOn, daysLeft }]
+app.post('/expiring-items', (req, res) => {
+  const { items, days } = req.body ?? {};
+  if (!Array.isArray(items) || items.length > 500) {
+    return res.status(400).json({ error: "items must be a list of at most 500 entries" });
+  }
+  const withinDays = Number.isFinite(Number(days)) ? Number(days) : 3;
+  return res.status(200).json(expiringFromDates(items, withinDays));
 });
 
 // PARAM: username

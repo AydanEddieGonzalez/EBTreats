@@ -41,6 +41,11 @@ export const changePantry = (username, changes) =>
 export const getExpiring = (username, days = 3) =>
   request(`/expiring/${userPath(username)}?days=${days}`);
 
+// Same result as getExpiring, for a guest pantry kept in this browser.
+// items: [{ name, addedAt, quantity }]
+export const getExpiringFor = (items, days = 3) =>
+  request('/expiring-items', sendJson('POST', { items, days }));
+
 export const savePreferences = (username, prefs) =>
   request(
     `/users/${userPath(username)}`,
