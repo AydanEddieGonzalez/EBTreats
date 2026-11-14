@@ -4,11 +4,16 @@
 // GET /stores?lat=37.87&lng=-122.27&radius=2&limit=25
 // GET /stores?zip=94704&limit=25
 //
-// Returns stores ranked for healthy, budget-friendly shopping:
-//   1. stores in a fruit/veg incentive program (e.g. Double Up Food Bucks) first
-//   2. then stores likely to carry fresh produce (supermarkets, grocers, farmers markets)
-//   3. then by distance
-// Tune the ranking in rankStores() below.
+// Returns stores ranked for healthy, budget-friendly shopping (see rankStores below):
+//   1. stores in a fruit/veg incentive program first
+//   2. then nearest first
+//   3. ties (e.g. zip searches, which have no distance) go to stores likely to carry
+//      fresh produce (supermarkets, grocers, farmers markets)
+//
+// Which field marks an incentive store: in this USDA layer the fruit/veg incentive stores
+// (GusNIP, e.g. Double Up Food Bucks, Market Match) are the ones with a Grantee_Name, the
+// organization running the incentive there (about 1,300 stores nationwide). Incentive_Program
+// is blank for almost every store and only ever says "Waiver", so it is not used for ranking.
 
 const SNAP_URL =
   'https://services1.arcgis.com/RLQu0rK7h4kbsBq5/arcgis/rest/services/snap_retailer_location_data/FeatureServer/0/query';
@@ -53,7 +58,7 @@ function storeTypeScore(type) {
 function toStore(attrs, origin) {
   const lat = attrs.Latitude;
   const lng = attrs.Longitude;
-  const incentive = String(attrs.Incentive_Program ?? '').trim();
+  const grantee = String(attrs.Grantee_Name ?? '').trim();
   return {
     id: attrs.Record_ID,
     name: attrs.Store_Name,
@@ -64,19 +69,22 @@ function toStore(attrs, origin) {
     type: attrs.Store_Type,
     lat,
     lng,
-    incentiveProgram: incentive || null,
-    hasIncentive: incentive !== '',
+    // name of the organization running the fruit/veg incentive at this store, or null
+    incentiveProgram: grantee || null,
+    hasIncentive: grantee !== '',
     distanceMiles: origin && lat != null && lng != null
       ? Math.round(milesBetween(origin.lat, origin.lng, lat, lng) * 100) / 100
       : null,
   };
 }
 
+// Incentive-program stores first, then nearest. Store type and name only break ties.
 export function rankStores(stores) {
   return [...stores].sort((a, b) =>
     (Number(b.hasIncentive) - Number(a.hasIncentive)) ||
+    ((a.distanceMiles ?? Infinity) - (b.distanceMiles ?? Infinity)) ||
     (storeTypeScore(b.type) - storeTypeScore(a.type)) ||
-    ((a.distanceMiles ?? Infinity) - (b.distanceMiles ?? Infinity))
+    String(a.name ?? '').localeCompare(String(b.name ?? ''))
   );
 }
 

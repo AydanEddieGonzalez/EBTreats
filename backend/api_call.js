@@ -1,6 +1,8 @@
 import pluralize from 'pluralize';
  import { getDb } from './mongodb.js';
 import { registerStoreRoutes } from './stores.js';
+import { registerShoppingPlanRoutes } from './shoppingPlan.js';
+import { registerGoalChatRoutes } from './goalChat.js';
 import 'dotenv/config';
 
 import express from 'express';
@@ -189,6 +191,7 @@ const userProfileSchema = new mongoose.Schema({
     budget: Number,
     timeAvailable: Number,
     appliances: [String],
+    goals: [String],             // health goals from the goal chat (goalChat.js)
     recipeRatings: { type: Map, of: Number },
     ingredients:   { type: Map, of: Number },
     ingredientAddedAt: { type: Map, of: Date, default: {} },
@@ -566,6 +569,12 @@ app.post('/login', async (req, res) => {
 
 // SNAP store lookup: GET /stores?lat=..&lng=..&radius=..  (see stores.js)
 registerStoreRoutes(app);
+
+// Core loop: location and budget in, stores and shopping list out (see shoppingPlan.js)
+registerShoppingPlanRoutes(app, { runPython });
+
+// Goal chat; goals saved to the user profile (see goalChat.js)
+registerGoalChatRoutes(app, { runPython, UserProfile });
 
 // Start the server
 app.listen(port, () => {
