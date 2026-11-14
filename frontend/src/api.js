@@ -57,12 +57,30 @@ export const savePreferences = (username, prefs) =>
 export const generateRecipes = (payload) =>
   request('/generate_recipes', sendJson('POST', payload)).then((body) => body.recipes ?? []);
 
+// Meal prep (recipe-gen): 2-3 recipes cooked from one shopping list so items are shared.
+// payload: the same fields as generateRecipes plus shoppingList: [item names]
+// Returns { recipes, sharedIngredients, unusedItems }.
+export const generateMealPlan = (payload) =>
+  request('/generate_recipes', sendJson('POST', payload)).then((body) => ({
+    recipes: body.recipes ?? [],
+    sharedIngredients: body.sharedIngredients ?? [],
+    unusedItems: body.unusedItems ?? [],
+  }));
+
 // { [ingredient]: [quantity, unit] }
 export function scanReceipt(file) {
   const formData = new FormData();
   formData.append('file', file);
   return request('/ocr', { method: 'POST', body: formData });
 }
+
+// Core loop (backend/shoppingPlan.js): location and budget in, stores and a shopping list out.
+// body: { lat, lng } or { zip }, plus { budget, radius, storeId, goals, householdSize, days,
+//        dietaryRestrictions, allergens, pantryItems }
+// Returns { stores, store, list, listError?, details? }. list is
+// { items: [{ name, category, quantity, unit, estimatedPrice, snapEligible, reason }],
+//   estimatedTotal, budget, remaining, overBudget, goalNotes, tips } or null.
+export const getShoppingPlan = (body) => request('/shopping-plan', sendJson('POST', body));
 
 // SNAP stores, ranked by the backend (incentive program, then store type, then distance).
 export function findStores({ lat, lng, zip, radius }) {

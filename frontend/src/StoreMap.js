@@ -4,8 +4,12 @@
 // incentive-program stores first, then fresh-food store types, then distance.
 //
 // Props:
-//   active  true while the map view is on screen. The first time it turns on,
-//           the page asks the browser for the user's location.
+//   active         true while the map view is on screen. The first time it turns on,
+//                  the page asks the browser for the user's location.
+//   onSearch       optional, called with the current search ({ lat, lng, radius } or { zip }) or null
+//   onSelectStore  optional, called with the store whose pin is picked, or null
+//   onPlan         optional, shows a "Build a shopping list" button over the map
+//   focus          optional { store, where }: search `where` and pick `store` (from the shopping list)
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import L from 'leaflet';
@@ -89,12 +93,14 @@ function matchesFilter(store, filter) {
   return true;
 }
 
-export default function StoreMap({ active }) {
+export default function StoreMap({ active, onSearch, onSelectStore, onPlan, focus }) {
   const mapDivRef = useRef(null);
   const mapRef = useRef(null);
   const markersRef = useRef(new Map()); // store id -> Leaflet marker
   const youMarkerRef = useRef(null);
   const askedForLocation = useRef(false);
+  const pendingFocusId = useRef(null); // store to pick once the next search loads
+  const popupForId = useRef(null); // store whose popup opens once its pin is drawn
 
   const [center, setCenter] = useState(null);
   const [radius, setRadius] = useState(1);
@@ -162,7 +168,7 @@ export default function StoreMap({ active }) {
   useEffect(() => {
     if (!active) return undefined;
     const timer = setTimeout(() => mapRef.current?.invalidateSize(), 120);
-    if (!askedForLocation.current) {
+    if (!askedForLocation.current && !focus?.store) {
       askedForLocation.current = true;
       locate();
     }
@@ -179,7 +185,9 @@ export default function StoreMap({ active }) {
       .then((result) => {
         if (cancelled) return;
         setStores(result);
-        setSelectedId(null);
+        const focusId = pendingFocusId.current;
+        pendingFocusId.current = null;
+        setSelectedId(focusId != null && result.some((s) => s.id === focusId) ? focusId : null);
         setStatus(result.length ? '' : 'No SNAP stores found here. Try a bigger distance.');
       })
       .catch((err) => {
@@ -234,7 +242,46 @@ export default function StoreMap({ active }) {
     visibleStores.forEach((store) => {
       markersRef.current.get(store.id)?.setIcon(pinIcon(store, store.id === selectedId));
     });
+    onSelectStore?.(stores.find((s) => s.id === selectedId) ?? null);
   }, [selectedId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Tell the app where the map is looking, so the shopping list can use the same place.
+  useEffect(() => {
+    if (zip) onSearch?.({ zip });
+    else if (center) onSearch?.({ lat: center.lat, lng: center.lng, radius });
+    else onSearch?.(null);
+  }, [center, zip, radius]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // "See store on map" from the shopping list: run the list's search and pick its store.
+  useEffect(() => {
+    if (!focus?.store) return;
+    const { store, where } = focus;
+    askedForLocation.current = true; // don't replace this search with a location prompt
+    setFilter('All stores');
+    setQuery('');
+    popupForId.current = store.id;
+    if (stores.some((s) => s.id === store.id)) {
+      setSelectedId(store.id);
+      return;
+    }
+    pendingFocusId.current = store.id;
+    if (where?.zip) {
+      setZip(where.zip);
+    } else if (where?.lat != null) {
+      setZip('');
+      if (where.radius) setRadius(where.radius);
+      setCenter({ lat: where.lat, lng: where.lng });
+    }
+  }, [focus]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Open the focused store's popup once its pin is drawn.
+  useEffect(() => {
+    if (selectedId == null || popupForId.current !== selectedId) return;
+    const marker = markersRef.current.get(selectedId);
+    if (!marker) return;
+    popupForId.current = null;
+    marker.openPopup();
+  }, [selectedId, visibleStores, focus]);
 
   function submitSearch(e) {
     e.preventDefault();
@@ -247,6 +294,7 @@ export default function StoreMap({ active }) {
     }
   }
 
+  const selected = stores.find((s) => s.id === selectedId) ?? null;
   const nearest = visibleStores
     .filter((s) => s.distanceMiles != null)
     .reduce((best, s) => (!best || s.distanceMiles < best.distanceMiles ? s : best), null);
@@ -306,6 +354,12 @@ export default function StoreMap({ active }) {
       <div className="map-canvas">
         <div ref={mapDivRef} className="leaflet-host" />
         {(error || status) && <div className={`map-status${error ? ' error' : ''}`}>{error || status}</div>}
+        {onPlan && stores.length > 0 && (
+          <button className="map-plan-btn" onClick={onPlan}>
+            <Icon name="list" size={16} />
+            {selected ? `Build a list for ${titleCase(selected.name)}` : 'Build a shopping list here'}
+          </button>
+        )}
         <div className="map-legend">
           <span>
             <i className="produce-key"><Icon name="leaf" size={13} /></i> Produce incentive

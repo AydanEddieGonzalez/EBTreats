@@ -7,7 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import pluralize from 'pluralize';
 import Icon from './Icon';
 import StoreMap from './StoreMap';
-import { AuthModal, PreferencesModal, ReceiptModal, RecipeModal } from './Modals';
+import { AuthModal, PreferencesModal, ReceiptModal, RecipeModal, ShoppingPlanModal } from './Modals';
 import * as api from './api';
 import { load, save } from './storage';
 
@@ -30,6 +30,14 @@ function words(name) {
 }
 
 const keyFor = (name) => words(name).join(' ');
+
+// 'chicken' matches 'chicken breast': one name's words are all in the other's.
+function sameItem(a, b) {
+  const wa = words(a);
+  const wb = new Set(words(b));
+  if (!wa.length || !wb.size) return false;
+  return wa.every((w) => wb.has(w)) || [...wb].every((w) => wa.includes(w));
+}
 
 function thumbColor(name) {
   let hash = 0;
@@ -71,10 +79,15 @@ export default function App() {
   const [recipes, setRecipes] = useState(() => load('recipes', []));
   const [recipeIndex, setRecipeIndex] = useState(0);
   const [generating, setGenerating] = useState(false);
+  // Set when the recipes came from the grocery list (meal prep): { shared: [...], unused: [...] }
+  const [mealPlan, setMealPlan] = useState(() => load('mealPlan', null));
 
   const [view, setView] = useState('list');
   const [menuOpen, setMenuOpen] = useState(false);
-  const [modal, setModal] = useState(null); // 'auth' | 'prefs' | 'receipt' | 'recipe'
+  const [modal, setModal] = useState(null); // 'auth' | 'prefs' | 'receipt' | 'recipe' | 'plan'
+  const [mapSearch, setMapSearch] = useState(null); // where the map last looked: { lat, lng, radius } or { zip }
+  const [mapStore, setMapStore] = useState(null); // the store pin picked on the map
+  const [mapFocus, setMapFocus] = useState(null); // { store, where }: show this store on the map
   const [recipeFront, setRecipeFront] = useState(false);
   const [noteDraft, setNoteDraft] = useState(null);
   const [toast, setToast] = useState(null);
@@ -95,6 +108,7 @@ export default function App() {
   useEffect(() => save('user', username), [username]);
   useEffect(() => save('prefs', prefs), [prefs]);
   useEffect(() => save('recipes', recipes), [recipes]);
+  useEffect(() => save('mealPlan', mealPlan), [mealPlan]);
   useEffect(() => { if (!username) save('guestPantry', pantry); }, [pantry, username]);
   useEffect(() => save(`list.${owner}`, list), [list, owner]);
   useEffect(() => save(`notes.${owner}`, notes), [notes, owner]);
@@ -201,6 +215,22 @@ export default function App() {
     });
   };
 
+  function addPlanItems(items) {
+    const seen = new Set(list.map((i) => keyFor(i.name)));
+    const fresh = items.filter((i) => !seen.has(keyFor(i.name)));
+    addToList(items);
+    setModal(null);
+    setView('list');
+    const already = items.length - fresh.length;
+    notify(`Added ${fresh.length} ${fresh.length === 1 ? 'item' : 'items'} to your list${already ? ` (${already} already there)` : ''}`);
+  }
+
+  function showStoreOnMap(store, where) {
+    setModal(null);
+    setMapFocus({ store, where, at: Date.now() });
+    setView('map');
+  }
+
   async function boughtItem(item) {
     const name = keyFor(item.name) || item.name.toLowerCase();
     if (await changePantry({ [name]: 1 })) {
@@ -236,22 +266,25 @@ export default function App() {
 
   // ---- recipes ----------------------------------------------------------------
 
+  const recipeRequest = () => ({
+    username,
+    pantryItems: Object.keys(pantry),
+    time: prefs.time,
+    difficulty: prefs.difficulty,
+    budget: prefs.budget,
+    allergens: prefs.allergens,
+    appliances: prefs.appliances,
+    cuisines: prefs.cuisines,
+  });
+
   async function generate() {
     setGenerating(true);
     try {
-      const result = await api.generateRecipes({
-        username,
-        pantryItems: Object.keys(pantry),
-        time: prefs.time,
-        difficulty: prefs.difficulty,
-        budget: prefs.budget,
-        allergens: prefs.allergens,
-        appliances: prefs.appliances,
-        cuisines: prefs.cuisines,
-      });
+      const result = await api.generateRecipes(recipeRequest());
       if (!result.length) throw new Error('No recipes came back. Try again.');
       setRecipes(result);
       setRecipeIndex(0);
+      setMealPlan(null);
       notify(`${result.length} new recipes ready`);
     } catch (err) {
       notify(err.message, 'error');
@@ -260,9 +293,38 @@ export default function App() {
     }
   }
 
+  // 2-3 meals cooked from the grocery list, sharing ingredients so nothing is bought for one meal.
+  async function planMeals(names) {
+    const shoppingList = [...new Set(names.map((n) => String(n).trim()).filter(Boolean))];
+    if (shoppingList.length < 2) return notify('Add at least 2 items to your list first.', 'error');
+    setGenerating(true);
+    setView('list');
+    try {
+      const result = await api.generateMealPlan({ ...recipeRequest(), shoppingList });
+      if (!result.recipes.length) throw new Error('No meals came back. Try again.');
+      setRecipes(result.recipes);
+      setRecipeIndex(0);
+      setMealPlan({ shared: result.sharedIngredients, unused: result.unusedItems });
+      setRecipeFront(true);
+      const shared = result.sharedIngredients.length;
+      notify(`${result.recipes.length} meals planned from your list${shared ? `, sharing ${shared} ${shared === 1 ? 'ingredient' : 'ingredients'}` : ''}`);
+    } catch (err) {
+      notify(err.message, 'error');
+    } finally {
+      setGenerating(false);
+    }
+  }
+
+  function addAndPlanMeals(items) {
+    addPlanItems(items);
+    planMeals([...list.map((i) => i.name), ...items.map((i) => i.name)]);
+  }
+
+  const isListed = (name) => list.some((i) => sameItem(i.name, name));
+
   function addMissingFromRecipe(r) {
     const missing = r.ingredients
-      .filter((ing) => !hasItem(ing.item))
+      .filter((ing) => !hasItem(ing.item) && !isListed(ing.item))
       .map((ing) => ({ name: ing.item, detail: [ing.amount, ing.unit].filter(Boolean).join(' '), source: r.name }));
     addToList(missing);
     setModal(null);
@@ -273,6 +335,10 @@ export default function App() {
   const match = recipe
     ? { have: recipe.ingredients.filter((ing) => hasItem(ing.item)).length, total: recipe.ingredients.length }
     : null;
+  // Grocery-list items this meal shares with the other planned meals.
+  const sharedHere = recipe && mealPlan
+    ? mealPlan.shared.filter((s) => recipe.ingredients.some((ing) => sameItem(ing.item, s)))
+    : [];
 
   // ---- account ----------------------------------------------------------------
 
@@ -355,7 +421,13 @@ export default function App() {
 
       <main className={`stage ${view}`}>
         <section className="map-view" aria-hidden={view !== 'map'}>
-          <StoreMap active={view === 'map'} />
+          <StoreMap
+            active={view === 'map'}
+            onSearch={setMapSearch}
+            onSelectStore={setMapStore}
+            onPlan={() => setModal('plan')}
+            focus={mapFocus}
+          />
         </section>
 
         <section className="dashboard" aria-hidden={view !== 'list'}>
@@ -395,6 +467,7 @@ export default function App() {
                     Scan a grocery receipt to fill your pantry, then pick a recipe.
                     Missing ingredients land here, so you only buy what you need.
                     <div className="list-actions" style={{ padding: 0 }}>
+                      <button className="ghost-btn" onClick={() => setModal('plan')}><Icon name="list" size={14} /> Build my shopping list</button>
                       <button className="ghost-btn" onClick={() => setModal('receipt')}><Icon name="upload" size={14} /> Scan a receipt</button>
                       <button className="ghost-btn" onClick={generate} disabled={generating}><Icon name="sparkle" size={14} /> {generating ? 'Generating...' : 'Suggest recipes'}</button>
                     </div>
@@ -408,7 +481,7 @@ export default function App() {
                     <div className="item-copy">
                       <h3>{capitalize(item.name)}</h3>
                       <p>{item.detail || 'To buy'}</p>
-                      {item.source && <span>For {item.source}</span>}
+                      {item.source ? <span>For {item.source}</span> : item.store ? <span>At {item.store}</span> : null}
                     </div>
                     <span className="have-label" />
                     <button className="score score-a" onClick={() => boughtItem(item)} aria-label={`I bought ${item.name}`} title="Bought it: move to pantry">
@@ -440,7 +513,13 @@ export default function App() {
 
               {(list.length > 0 || pantryRows.length > 0) && (
                 <div className="list-actions">
+                  <button className="ghost-btn" onClick={() => setModal('plan')}><Icon name="list" size={14} /> Build my shopping list</button>
                   <button className="ghost-btn" onClick={() => setModal('receipt')}><Icon name="upload" size={14} /> Scan a receipt</button>
+                  {list.length > 1 && (
+                    <button className="ghost-btn" onClick={() => planMeals(list.map((i) => i.name))} disabled={generating}>
+                      <Icon name="sparkle" size={14} /> {generating ? 'Planning meals...' : 'Plan meals from my list'}
+                    </button>
+                  )}
                   {list.length > 0 && (
                     <button className="ghost-btn" onClick={() => setList([])}><Icon name="close" size={14} /> Clear to-buy items</button>
                   )}
@@ -488,7 +567,11 @@ export default function App() {
               </button>
               <div className="recipe-image placeholder">
                 <Icon name="leaf" size={64} />
-                <span>{recipe ? `SUGGESTION ${recipeIndex + 1} OF ${recipes.length}` : 'COOK FROM WHAT YOU HAVE'}</span>
+                <span>
+                  {!recipe ? 'COOK FROM WHAT YOU HAVE'
+                    : mealPlan ? `MEAL ${recipeIndex + 1} OF ${recipes.length} · FROM YOUR LIST`
+                      : `SUGGESTION ${recipeIndex + 1} OF ${recipes.length}`}
+                </span>
               </div>
               <div className="recipe-content">
                 {recipe ? (
@@ -504,6 +587,11 @@ export default function App() {
                       <span><Icon name="leaf" size={14} /> {match.have} of {match.total} ingredients in your pantry</span>
                       <div><i style={{ width: `${match.total ? Math.round((match.have / match.total) * 100) : 0}%` }} /></div>
                     </div>
+                    {sharedHere.length > 0 && (
+                      <div className="meal-share">
+                        <Icon name="list" size={13} /> Shares {sharedHere.slice(0, 3).join(', ')}{sharedHere.length > 3 ? '...' : ''} with your other meals
+                      </div>
+                    )}
                     <button className="recipe-cta" onClick={(e) => { e.stopPropagation(); setModal('recipe'); }}>
                       View recipe <Icon name="chevron" size={16} />
                     </button>
@@ -580,6 +668,9 @@ export default function App() {
             <Icon name="sliders" /> Budget and cooking time <Icon name="chevron" size={16} />
           </button>
           <p>SHOPPING</p>
+          <button onClick={openDrawerItem(() => setModal('plan'))}>
+            <Icon name="list" /> Build my shopping list <Icon name="chevron" size={16} />
+          </button>
           <button onClick={openDrawerItem(() => setModal('receipt'))}>
             <Icon name="upload" /> Scan a receipt <Icon name="chevron" size={16} />
           </button>
@@ -598,8 +689,28 @@ export default function App() {
       {modal === 'auth' && <AuthModal onClose={() => setModal(null)} onAuthed={onAuthed} />}
       {modal === 'prefs' && <PreferencesModal prefs={prefs} onSave={savePrefs} onClose={() => setModal(null)} />}
       {modal === 'receipt' && <ReceiptModal onClose={() => setModal(null)} onAdd={addReceiptItems} />}
+      {modal === 'plan' && (
+        <ShoppingPlanModal
+          prefs={prefs}
+          pantryItems={pantryRows.map((row) => row.name)}
+          mapSearch={mapSearch}
+          mapStore={mapStore}
+          onAddItems={addPlanItems}
+          onPlanMeals={addAndPlanMeals}
+          planning={generating}
+          onShowStore={showStoreOnMap}
+          onClose={() => setModal(null)}
+        />
+      )}
       {modal === 'recipe' && recipe && (
-        <RecipeModal recipe={recipe} hasItem={hasItem} onClose={() => setModal(null)} onAddMissing={() => addMissingFromRecipe(recipe)} />
+        <RecipeModal
+          recipe={recipe}
+          hasItem={hasItem}
+          isListed={isListed}
+          mealPlan={mealPlan && { ...mealPlan, sharedHere, count: recipes.length }}
+          onClose={() => setModal(null)}
+          onAddMissing={() => addMissingFromRecipe(recipe)}
+        />
       )}
 
       {toast && (
