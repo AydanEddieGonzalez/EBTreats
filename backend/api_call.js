@@ -1,6 +1,7 @@
 import pluralize from 'pluralize';
  import { getDb } from './mongodb.js';
 import { registerStoreRoutes } from './stores.js';
+import { shelfLifeFor, pantryNamesFor, expiringItemsFor } from './pantryMapping.js';
 import 'dotenv/config';
 
 import express from 'express';
@@ -375,21 +376,6 @@ app.get('/user-ingredients/:user', async (req, res) => {
     }
 });
 
-// Rough fridge/pantry shelf life in days. Anything not listed uses DEFAULT_SHELF_LIFE_DAYS.
-const SHELF_LIFE_DAYS = {
-  'milk': 7, 'chicken': 2, 'chicken breast': 2, 'beef': 3, 'ground beef': 2, 'fish': 2, 'salmon': 2,
-  'egg': 21, 'cheese': 21, 'yogurt': 14, 'bread': 7, 'lettuce': 7, 'spinach': 5, 'tomato': 7,
-  'banana': 5, 'strawberry': 4, 'berry': 4, 'apple': 30, 'carrot': 21, 'broccoli': 5,
-  'onion': 30, 'potato': 30, 'garlic': 60, 'rice': 365, 'pasta': 365, 'flour': 180, 'bean': 365,
-};
-const DEFAULT_SHELF_LIFE_DAYS = 10;
-
-function shelfLifeFor(ingredient) {
-  const key = pluralize.singular(String(ingredient).trim().toLowerCase());
-  if (SHELF_LIFE_DAYS[key] !== undefined) return SHELF_LIFE_DAYS[key];
-  const partial = Object.keys(SHELF_LIFE_DAYS).find(k => key.includes(k));
-  return partial ? SHELF_LIFE_DAYS[partial] : DEFAULT_SHELF_LIFE_DAYS;
-}
 
 // GET ingredients that expire within ?days=N (default 3), soonest first
 app.get('/expiring/:user', async (req, res) => {
@@ -436,6 +422,22 @@ app.get('/user-ingredients/:user/:ingredient', async (req, res) => {
 }
 });
 
+// GET what the shopping list needs from the pantry:
+// pantryItems = names to not buy again; useFirst = items expiring within ?days=N (default 3)
+app.get('/shopping-pantry/:user', async (req, res) => {
+  try {
+    const user = await UserProfile.findByUsername(req.params.user);
+    if (!user) return res.status(404).json({ error: "Could not find user" });
+    const days = Number(req.query.days ?? 3);
+    return res.status(200).json({
+      pantryItems: pantryNamesFor(user),
+      useFirst: expiringItemsFor(user, days),
+    });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ error: "Failed to load pantry for shopping list" });
+  }
+});
 
 // PARAM: username
 // BODY: JSON of lists of ingredient-quantity pairs
