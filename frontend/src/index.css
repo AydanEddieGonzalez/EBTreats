@@ -2229,3 +2229,189 @@ body {
 .view-switch button {
   white-space: nowrap;
 }
+
+/* Shopping list builder (ShoppingPlanModal) and the map's "Build a list" button */
+.plan-location {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.plan-location .ghost-btn {
+  flex: 0 0 auto;
+  height: 43px;
+  margin-top: 6px;
+  border-radius: 5px;
+}
+.plan-location .ghost-btn.active {
+  background: var(--cf-green-soft);
+  border-color: #b9d0b9;
+}
+.plan-location input {
+  flex: 1;
+  min-width: 0;
+}
+.card-modal .plan-store-pick {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 11px;
+}
+.card-modal .plan-store-pick input {
+  width: auto;
+  height: auto;
+  margin: 0;
+  accent-color: var(--cf-green);
+}
+.plan-store {
+  margin: 6px 0 0;
+  color: var(--cf-muted);
+  font-size: 12px;
+}
+.plan-incentive {
+  margin: 12px 0 0;
+  padding: 9px 11px;
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  border-radius: 8px;
+  background: #fdf3e3;
+  color: #8a5410;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.plan-incentive svg {
+  flex: 0 0 auto;
+  margin-top: 2px;
+}
+.plan-total {
+  margin: 16px 0 4px;
+  padding: 12px 14px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  border-radius: 8px;
+  background: var(--cf-green-soft);
+  color: var(--cf-ink);
+}
+.plan-total strong {
+  display: block;
+  font: 600 24px "Newsreader", serif;
+}
+.plan-total span {
+  color: var(--cf-muted);
+  font-size: 11px;
+}
+.plan-total em {
+  font-style: normal;
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--cf-green-dark);
+  white-space: nowrap;
+}
+.plan-total.over {
+  background: #fdecea;
+}
+.plan-total.over em {
+  color: #a3341f;
+}
+.plan-items li {
+  align-items: flex-start;
+}
+.plan-check {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  margin-top: 1px;
+  display: grid;
+  place-items: center;
+  border: 1.5px solid #c5d2c5;
+  border-radius: 5px;
+  background: #fff;
+  color: transparent;
+}
+.plan-check.on {
+  border-color: var(--cf-green);
+  background: var(--cf-green);
+  color: #fff;
+}
+.plan-item-copy {
+  min-width: 0;
+}
+.plan-item-copy strong {
+  display: block;
+  font-weight: 600;
+}
+.plan-item-copy small {
+  display: block;
+  margin-top: 2px;
+  color: var(--cf-muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+.recipe-detail-list.plan-items li span {
+  flex: 0 0 auto;
+  text-align: right;
+  line-height: 1.4;
+}
+.plan-items li span b {
+  display: block;
+  color: var(--cf-ink);
+  font-size: 12px;
+}
+.plan-notes {
+  margin: 0;
+  padding-left: 18px;
+  list-style: disc;
+  color: var(--cf-ink);
+  font-size: 12px;
+  line-height: 1.55;
+}
+.plan-actions {
+  margin-top: 20px;
+}
+.plan-secondary {
+  padding: 12px 0 0;
+}
+.map-plan-btn {
+  position: absolute;
+  left: 22px;
+  bottom: 20px;
+  z-index: 1000;
+  max-width: calc(100% - 44px);
+  padding: 11px 16px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  border: 0;
+  border-radius: 22px;
+  background: var(--cf-green);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  box-shadow: 0 6px 18px rgba(44, 61, 51, 0.25);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.map-plan-btn:hover {
+  background: var(--cf-green-dark);
+}
+/* Below 900px the My list / Find stores switch is fixed at the bottom center,
+   so the button sits above it (and above the legend on phones). */
+@media (max-width: 900px) {
+  .map-plan-btn {
+    left: 50%;
+    bottom: 74px;
+    max-width: calc(100% - 32px);
+    transform: translateX(-50%);
+  }
+}
+@media (max-width: 650px) {
+  .map-plan-btn {
+    bottom: 124px;
+  }
+  .plan-location {
+    flex-wrap: wrap;
+  }
+}

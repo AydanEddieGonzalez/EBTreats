@@ -64,6 +64,14 @@ export function scanReceipt(file) {
   return request('/ocr', { method: 'POST', body: formData });
 }
 
+// Core loop (backend/shoppingPlan.js): location and budget in, stores and a shopping list out.
+// body: { lat, lng } or { zip }, plus { budget, radius, storeId, goals, householdSize, days,
+//        dietaryRestrictions, allergens, pantryItems }
+// Returns { stores, store, list, listError?, details? }. list is
+// { items: [{ name, category, quantity, unit, estimatedPrice, snapEligible, reason }],
+//   estimatedTotal, budget, remaining, overBudget, goalNotes, tips } or null.
+export const getShoppingPlan = (body) => request('/shopping-plan', sendJson('POST', body));
+
 // SNAP stores, ranked by the backend (incentive program, then store type, then distance).
 export function findStores({ lat, lng, zip, radius }) {
   const params = new URLSearchParams({ limit: '60' });

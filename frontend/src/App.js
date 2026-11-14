@@ -7,7 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import pluralize from 'pluralize';
 import Icon from './Icon';
 import StoreMap from './StoreMap';
-import { AuthModal, PreferencesModal, ReceiptModal, RecipeModal } from './Modals';
+import { AuthModal, PreferencesModal, ReceiptModal, RecipeModal, ShoppingPlanModal } from './Modals';
 import * as api from './api';
 import { load, save } from './storage';
 
@@ -74,7 +74,10 @@ export default function App() {
 
   const [view, setView] = useState('list');
   const [menuOpen, setMenuOpen] = useState(false);
-  const [modal, setModal] = useState(null); // 'auth' | 'prefs' | 'receipt' | 'recipe'
+  const [modal, setModal] = useState(null); // 'auth' | 'prefs' | 'receipt' | 'recipe' | 'plan'
+  const [mapSearch, setMapSearch] = useState(null); // where the map last looked: { lat, lng, radius } or { zip }
+  const [mapStore, setMapStore] = useState(null); // the store pin picked on the map
+  const [mapFocus, setMapFocus] = useState(null); // { store, where }: show this store on the map
   const [recipeFront, setRecipeFront] = useState(false);
   const [noteDraft, setNoteDraft] = useState(null);
   const [toast, setToast] = useState(null);
@@ -200,6 +203,22 @@ export default function App() {
       return [...current, ...added];
     });
   };
+
+  function addPlanItems(items) {
+    const seen = new Set(list.map((i) => keyFor(i.name)));
+    const fresh = items.filter((i) => !seen.has(keyFor(i.name)));
+    addToList(items);
+    setModal(null);
+    setView('list');
+    const already = items.length - fresh.length;
+    notify(`Added ${fresh.length} ${fresh.length === 1 ? 'item' : 'items'} to your list${already ? ` (${already} already there)` : ''}`);
+  }
+
+  function showStoreOnMap(store, where) {
+    setModal(null);
+    setMapFocus({ store, where, at: Date.now() });
+    setView('map');
+  }
 
   async function boughtItem(item) {
     const name = keyFor(item.name) || item.name.toLowerCase();
@@ -355,7 +374,13 @@ export default function App() {
 
       <main className={`stage ${view}`}>
         <section className="map-view" aria-hidden={view !== 'map'}>
-          <StoreMap active={view === 'map'} />
+          <StoreMap
+            active={view === 'map'}
+            onSearch={setMapSearch}
+            onSelectStore={setMapStore}
+            onPlan={() => setModal('plan')}
+            focus={mapFocus}
+          />
         </section>
 
         <section className="dashboard" aria-hidden={view !== 'list'}>
@@ -395,6 +420,7 @@ export default function App() {
                     Scan a grocery receipt to fill your pantry, then pick a recipe.
                     Missing ingredients land here, so you only buy what you need.
                     <div className="list-actions" style={{ padding: 0 }}>
+                      <button className="ghost-btn" onClick={() => setModal('plan')}><Icon name="list" size={14} /> Build my shopping list</button>
                       <button className="ghost-btn" onClick={() => setModal('receipt')}><Icon name="upload" size={14} /> Scan a receipt</button>
                       <button className="ghost-btn" onClick={generate} disabled={generating}><Icon name="sparkle" size={14} /> {generating ? 'Generating...' : 'Suggest recipes'}</button>
                     </div>
@@ -408,7 +434,7 @@ export default function App() {
                     <div className="item-copy">
                       <h3>{capitalize(item.name)}</h3>
                       <p>{item.detail || 'To buy'}</p>
-                      {item.source && <span>For {item.source}</span>}
+                      {item.source ? <span>For {item.source}</span> : item.store ? <span>At {item.store}</span> : null}
                     </div>
                     <span className="have-label" />
                     <button className="score score-a" onClick={() => boughtItem(item)} aria-label={`I bought ${item.name}`} title="Bought it: move to pantry">
@@ -440,6 +466,7 @@ export default function App() {
 
               {(list.length > 0 || pantryRows.length > 0) && (
                 <div className="list-actions">
+                  <button className="ghost-btn" onClick={() => setModal('plan')}><Icon name="list" size={14} /> Build my shopping list</button>
                   <button className="ghost-btn" onClick={() => setModal('receipt')}><Icon name="upload" size={14} /> Scan a receipt</button>
                   {list.length > 0 && (
                     <button className="ghost-btn" onClick={() => setList([])}><Icon name="close" size={14} /> Clear to-buy items</button>
@@ -580,6 +607,9 @@ export default function App() {
             <Icon name="sliders" /> Budget and cooking time <Icon name="chevron" size={16} />
           </button>
           <p>SHOPPING</p>
+          <button onClick={openDrawerItem(() => setModal('plan'))}>
+            <Icon name="list" /> Build my shopping list <Icon name="chevron" size={16} />
+          </button>
           <button onClick={openDrawerItem(() => setModal('receipt'))}>
             <Icon name="upload" /> Scan a receipt <Icon name="chevron" size={16} />
           </button>
@@ -598,6 +628,17 @@ export default function App() {
       {modal === 'auth' && <AuthModal onClose={() => setModal(null)} onAuthed={onAuthed} />}
       {modal === 'prefs' && <PreferencesModal prefs={prefs} onSave={savePrefs} onClose={() => setModal(null)} />}
       {modal === 'receipt' && <ReceiptModal onClose={() => setModal(null)} onAdd={addReceiptItems} />}
+      {modal === 'plan' && (
+        <ShoppingPlanModal
+          prefs={prefs}
+          pantryItems={pantryRows.map((row) => row.name)}
+          mapSearch={mapSearch}
+          mapStore={mapStore}
+          onAddItems={addPlanItems}
+          onShowStore={showStoreOnMap}
+          onClose={() => setModal(null)}
+        />
+      )}
       {modal === 'recipe' && recipe && (
         <RecipeModal recipe={recipe} hasItem={hasItem} onClose={() => setModal(null)} onAddMissing={() => addMissingFromRecipe(recipe)} />
       )}
