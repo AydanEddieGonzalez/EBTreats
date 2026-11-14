@@ -1,6 +1,6 @@
 import pluralize from 'pluralize';
  import { getDb } from './mongodb.js';
-import { registerStoreRoutes } from './stores.js';
+import { registerStoreRoutes, registerStoreFallbackRoutes } from './stores.js';
 import { registerShoppingPlanRoutes } from './shoppingPlan.js';
 import { registerGoalChatRoutes } from './goalChat.js';
 import 'dotenv/config';
@@ -577,6 +577,9 @@ registerShoppingPlanRoutes(app, { runPython });
 
 // Goal chat; goals saved to the user profile (see goalChat.js)
 registerGoalChatRoutes(app, { runPython, UserProfile });
+
+// Uncomment to all Fallback Usage
+// registerStoreFallbackRoutes(app)
 
 // Start the server
 app.listen(port, () => {
