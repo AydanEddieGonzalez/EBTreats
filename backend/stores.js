@@ -3,6 +3,7 @@
 //
 // GET /stores?lat=37.87&lng=-122.27&radius=2&limit=25
 // GET /stores?zip=94704&limit=25
+// Add &sort=nearest for pure distance order instead of the healthy ranking.
 //
 // Returns stores ranked for healthy, budget-friendly shopping (see rankStores below):
 //   1. stores in a fruit/veg incentive program first
@@ -78,6 +79,10 @@ function toStore(attrs, origin) {
   };
 }
 
+export function sortByDistance(stores) {
+  return [...stores].sort((a, b) => (a.distanceMiles ?? Infinity) - (b.distanceMiles ?? Infinity));
+}
+
 // Incentive-program stores first, then nearest. Store type and name only break ties.
 export function rankStores(stores) {
   return [...stores].sort((a, b) =>
@@ -108,7 +113,7 @@ async function querySnap(params) {
   return features;
 }
 
-export async function findStores({ lat, lng, zip, radius = 2, limit = 25 }) {
+export async function findStores({ lat, lng, zip, radius = 2, limit = 25, sort = 'healthy' }) {
   let rows;
   let origin = null;
   if (lat != null && lng != null) {
@@ -126,13 +131,14 @@ export async function findStores({ lat, lng, zip, radius = 2, limit = 25 }) {
     rows = await querySnap({ where: `Zip_Code='${zip}'` });
   }
   const stores = rows.map((r) => toStore(r, origin));
-  return rankStores(stores).slice(0, Math.max(1, Math.min(Number(limit) || 25, 200)));
+  const ordered = sort === 'nearest' ? sortByDistance(stores) : rankStores(stores);
+  return ordered.slice(0, Math.max(1, Math.min(Number(limit) || 25, 200)));
 }
 
 export function registerStoreRoutes(app) {
   app.get('/stores', async (req, res) => {
     try {
-      const { lat, lng, zip, radius, limit } = req.query;
+      const { lat, lng, zip, radius, limit, sort } = req.query;
       const hasCoords = lat !== undefined && lng !== undefined;
       if (hasCoords) {
         const la = Number(lat);
@@ -143,7 +149,7 @@ export function registerStoreRoutes(app) {
       } else if (!zip || !/^\d{5}$/.test(String(zip))) {
         return res.status(400).json({ error: 'Send lat and lng, or a 5-digit zip' });
       }
-      const stores = await findStores({ lat: hasCoords ? lat : null, lng: hasCoords ? lng : null, zip, radius, limit });
+      const stores = await findStores({ lat: hasCoords ? lat : null, lng: hasCoords ? lng : null, zip, radius, limit, sort });
       return res.status(200).json({ count: stores.length, stores });
     } catch (error) {
       console.error('Store lookup error:', error.message);
