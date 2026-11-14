@@ -2,6 +2,32 @@
 // (minus, upload, locate, logout).
 
 const PATHS = {
+  home: (
+    <>
+      <path d="M3 11 12 4l9 7v9H3Z" />
+      <path d="M9 20v-6h6v6" />
+    </>
+  ),
+  recipes: (
+    <>
+      <path d="M3 11h18a9 9 0 0 1-18 0Z" />
+      <path d="M9 7c0-1.5 1-1.5 1-3M14 7c0-1.5 1-1.5 1-3" />
+    </>
+  ),
+  chat: (
+    <>
+      <path d="M4 5h16v11H9l-5 4Z" />
+      <path d="M8 10h8" />
+    </>
+  ),
+  camera: (
+    <>
+      <path d="M3 8h4l2-3h6l2 3h4v11H3Z" />
+      <circle cx="12" cy="13" r="3.5" />
+    </>
+  ),
+  send: <path d="M4 12 20 4l-6 16-3-7Z" />,
+  back: <path d="m15 18-6-6 6-6" />,
   menu: <path d="M4 7h16M4 12h16M4 17h16" />,
   search: (
     <>

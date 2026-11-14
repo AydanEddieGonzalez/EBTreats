@@ -294,19 +294,22 @@ export function planItemToListItem(item, store) {
     name: item.name,
     detail: [amountText(item), price].filter(Boolean).join(' · ') || 'To buy',
     store: store?.name ? titleCase(store.name) : undefined,
+    price: Number(item.estimatedPrice) > 0 ? Number(item.estimatedPrice) : undefined,
+    category: item.category,
   };
 }
 
 // "Build my shopping list": location + budget + goals go to POST /shopping-plan, and the
 // healthy SNAP-eligible list comes back for the top-ranked store (or the pin picked on the map).
 export function ShoppingPlanModal({
-  prefs, pantryItems, mapSearch, mapStore, onAddItems, onPlanMeals, planning, onShowStore, onClose,
+  prefs, pantryItems, mapSearch, mapStore, onAddItems, onPlanMeals, planning, onShowStore, onClose, initialGoals = [],
 }) {
   const [budget, setBudget] = useState(Number(prefs.budget) || 50);
   const [householdSize, setHouseholdSize] = useState(1);
   const [days, setDays] = useState(7);
-  const [goals, setGoals] = useState([]);
-  const [otherGoal, setOtherGoal] = useState('');
+  // Goals from the goal chat: known ones become chips, the rest go in the free-text field
+  const [goals, setGoals] = useState(() => initialGoals.filter((g) => GOALS.includes(g)));
+  const [otherGoal, setOtherGoal] = useState(() => initialGoals.filter((g) => !GOALS.includes(g)).join(', '));
   const [zip, setZip] = useState(mapSearch?.zip ?? '');
   const [coords, setCoords] = useState(
     mapSearch?.lat != null ? { lat: mapSearch.lat, lng: mapSearch.lng } : null,

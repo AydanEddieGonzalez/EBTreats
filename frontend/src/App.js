@@ -1,6 +1,6 @@
-// EBTreats app shell, following the "EBT Grocery Shopping App" design:
-// a top bar with a list/map switch, the grocery list + recipe card dashboard,
-// the "Find stores" map, and a side drawer. All data is live from the backend
+// EBTreats mobile app shell, following the "EBTreats Mobile Redesign" Figma file:
+// bottom tabs (Home, List, Recipes, Stores, Chat), a welcome screen on first visit,
+// and the existing modals for login, preferences, receipts, recipes and shopping plans. All data is live from the backend
 // (backend/api_call.js); a signed-out guest keeps their pantry in this browser.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -10,6 +10,7 @@ import StoreMap from './StoreMap';
 import { AuthModal, PreferencesModal, ReceiptModal, RecipeModal, ShoppingPlanModal } from './Modals';
 import * as api from './api';
 import { load, save } from './storage';
+import './mobile.css';
 
 const DEFAULT_PREFS = {
   budget: 50,
@@ -19,7 +20,25 @@ const DEFAULT_PREFS = {
   appliances: ['Stove', 'Oven', 'Microwave'],
   allergens: [],
 };
-const THUMB_COLORS = ['#3f7f35', '#2578ad', '#ee9d32', '#8e5baf', '#5a9c85', '#c0603a'];
+const TABS = [
+  ['home', 'Home', 'home'],
+  ['list', 'List', 'list'],
+  ['recipes', 'Recipes', 'recipes'],
+  ['stores', 'Stores', 'map'],
+  ['chat', 'Chat', 'chat'],
+];
+const LIST_CATEGORIES = {
+  produce: 'Produce',
+  protein: 'Protein',
+  dairy: 'Dairy',
+  grains: 'Grains',
+  frozen: 'Frozen',
+  pantry: 'Pantry',
+  other: 'Other',
+};
+const money = (n) => `$${(Number(n) || 0).toFixed(2)}`;
+// The price shows on the right, so drop "about $x" from a planned item's detail line.
+const listDetail = (item) => (Number(item.price) > 0 ? String(item.detail ?? '').replace(/\s*·?\s*about \$[\d.]+/, '') : item.detail);
 
 function words(name) {
   return String(name)
@@ -39,12 +58,6 @@ function sameItem(a, b) {
   return wa.every((w) => wb.has(w)) || [...wb].every((w) => wa.includes(w));
 }
 
-function thumbColor(name) {
-  let hash = 0;
-  for (const ch of String(name)) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
-  return THUMB_COLORS[hash % THUMB_COLORS.length];
-}
-
 function greeting() {
   const hour = new Date().getHours();
   if (hour < 12) return 'Good morning';
@@ -56,11 +69,6 @@ const capitalize = (s) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : '');
 
 // Pantry items that expire within this many days get a "use this first" reminder.
 const USE_FIRST_DAYS = 7;
-
-function isTypingTarget(target) {
-  return target instanceof Element
-    && (target.closest('input, textarea, select, [contenteditable="true"]') || target.closest('.leaflet-container'));
-}
 
 function prefsFromUser(user, current) {
   const next = { ...current };
@@ -87,16 +95,21 @@ export default function App() {
   // Set when the recipes came from the grocery list (meal prep): { shared: [...], unused: [...] }
   const [mealPlan, setMealPlan] = useState(() => load('mealPlan', null));
 
-  const [view, setView] = useState('list');
+  const [view, setView] = useState('home'); // 'home' | 'list' | 'recipes' | 'stores' | 'chat'
   const [menuOpen, setMenuOpen] = useState(false);
   const [modal, setModal] = useState(null); // 'auth' | 'prefs' | 'receipt' | 'recipe' | 'plan'
   const [mapSearch, setMapSearch] = useState(null); // where the map last looked: { lat, lng, radius } or { zip }
   const [mapStore, setMapStore] = useState(null); // the store pin picked on the map
   const [mapFocus, setMapFocus] = useState(null); // { store, where }: show this store on the map
-  const [recipeFront, setRecipeFront] = useState(false);
-  const [noteDraft, setNoteDraft] = useState(null);
   const [toast, setToast] = useState(null);
-  const touchStart = useRef(null);
+  const [listTab, setListTab] = useState('buy'); // 'buy' | 'have'
+  const [addDraft, setAddDraft] = useState('');
+  const [chat, setChat] = useState([]); // goal chat: [{ role, text, error? }]
+  const [chatDraft, setChatDraft] = useState('');
+  const [chatBusy, setChatBusy] = useState(false);
+  const [goals, setGoals] = useState(() => load('goals', []));
+  const [welcomed, setWelcomed] = useState(() => Boolean(load('user', '')) || load('welcomed', false));
+  const mainRef = useRef(null);
 
   const owner = username || 'guest';
   const recipe = recipes[recipeIndex] ?? null;
@@ -118,6 +131,14 @@ export default function App() {
   useEffect(() => save('guestAddedAt', guestAddedAt), [guestAddedAt]);
   useEffect(() => save(`list.${owner}`, list), [list, owner]);
   useEffect(() => save(`notes.${owner}`, notes), [notes, owner]);
+  useEffect(() => save('goals', goals), [goals]);
+  useEffect(() => save('welcomed', welcomed || ''), [welcomed]);
+
+  // Signed-in users keep their goals on their profile.
+  useEffect(() => {
+    if (!username) return;
+    api.getGoals(username).then((saved) => { if (saved.length) setGoals(saved); }).catch(() => {});
+  }, [username]);
 
   const refreshExpiring = useCallback((name) => {
     if (!name) return setExpiring([]);
@@ -166,29 +187,17 @@ export default function App() {
     refreshExpiring(username);
   }, [username, logOut, notify, refreshExpiring]);
 
-  // Keyboard: Esc closes things; arrows switch views (not while typing or panning the map).
+  // Keyboard: Esc closes the drawer and modals.
   useEffect(() => {
     const onKey = (event) => {
       if (event.key === 'Escape') {
         setMenuOpen(false);
         setModal(null);
-        setRecipeFront(false);
       }
-      if (modal || isTypingTarget(event.target)) return;
-      if (event.key === 'ArrowRight') setView('map');
-      if (event.key === 'ArrowLeft') setView('list');
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [modal]);
-
-  const finishSwipe = (event) => {
-    if (touchStart.current === null) return;
-    const delta = event.changedTouches[0].clientX - touchStart.current;
-    if (delta < -55) setView('map');
-    if (delta > 55) setView('list');
-    touchStart.current = null;
-  };
+  }, []);
 
   // ---- pantry ---------------------------------------------------------------
 
@@ -257,7 +266,7 @@ export default function App() {
   function showStoreOnMap(store, where) {
     setModal(null);
     setMapFocus({ store, where, at: Date.now() });
-    setView('map');
+    setView('stores');
   }
 
   async function boughtItem(item) {
@@ -272,18 +281,6 @@ export default function App() {
     if (await changePantry({ [name]: -(pantry[name] ?? 1) })) notify(`${capitalize(name)} removed from your pantry`);
   }
 
-  function addNote(e) {
-    e.preventDefault();
-    const text = (noteDraft ?? '').trim();
-    if (text) setNotes((current) => [...current, text]);
-    setNoteDraft(null);
-  }
-
-  function promoteNote(index) {
-    addToList([{ name: notes[index], detail: 'From your notes' }]);
-    setNotes((current) => current.filter((_, i) => i !== index));
-  }
-
   const expiringByName = useMemo(() => new Map(expiring.map((e) => [e.name, e.daysLeft])), [expiring]);
   const pantryRows = useMemo(
     () => Object.entries(pantry)
@@ -294,6 +291,7 @@ export default function App() {
   );
   // The three pantry items to cook with first (pantryRows is sorted soonest first).
   const useFirst = pantryRows.filter((row) => row.daysLeft != null).slice(0, 3);
+  const daysText = (d) => (d <= 0 ? 'today' : `${d} ${d === 1 ? 'day' : 'days'}`);
 
   // ---- recipes ----------------------------------------------------------------
 
@@ -329,14 +327,13 @@ export default function App() {
     const shoppingList = [...new Set(names.map((n) => String(n).trim()).filter(Boolean))];
     if (shoppingList.length < 2) return notify('Add at least 2 items to your list first.', 'error');
     setGenerating(true);
-    setView('list');
+    setView('recipes');
     try {
       const result = await api.generateMealPlan({ ...recipeRequest(), shoppingList });
       if (!result.recipes.length) throw new Error('No meals came back. Try again.');
       setRecipes(result.recipes);
       setRecipeIndex(0);
       setMealPlan({ shared: result.sharedIngredients, unused: result.unusedItems });
-      setRecipeFront(true);
       const shared = result.sharedIngredients.length;
       notify(`${result.recipes.length} meals planned from your list${shared ? `, sharing ${shared} ${shared === 1 ? 'ingredient' : 'ingredients'}` : ''}`);
     } catch (err) {
@@ -359,13 +356,9 @@ export default function App() {
       .map((ing) => ({ name: ing.item, detail: [ing.amount, ing.unit].filter(Boolean).join(' '), source: r.name }));
     addToList(missing);
     setModal(null);
-    setRecipeFront(false);
     notify(`Added ${missing.length} ${missing.length === 1 ? 'item' : 'items'} to your list`);
   }
 
-  const match = recipe
-    ? { have: recipe.ingredients.filter((ing) => hasItem(ing.item)).length, total: recipe.ingredients.length }
-    : null;
   // Grocery-list items this meal shares with the other planned meals.
   const sharedHere = recipe && mealPlan
     ? mealPlan.shared.filter((s) => recipe.ingredients.some((ing) => sameItem(ing.item, s)))
@@ -379,6 +372,7 @@ export default function App() {
     setPantry(user.ingredients ?? {});
     setList(load(`list.${user.username}`, []));
     setNotes(load(`notes.${user.username}`, []));
+    setWelcomed(true);
     setModal(null);
     notify(`Welcome, ${capitalize(user.username)}!`);
   }
@@ -407,268 +401,407 @@ export default function App() {
     }
   }
 
-  const today = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' }).toUpperCase();
-  const toBuyCount = list.length + notes.length;
+  const listTotal = list.reduce((sum, i) => sum + (Number(i.price) || 0), 0);
+  const pricedCount = list.filter((i) => Number(i.price) > 0).length;
+  const budget = Number(prefs.budget) || 0;
+  const budgetLeft = budget - listTotal;
+  const budgetPct = budget ? Math.min(100, Math.round((listTotal / budget) * 100)) : 0;
+  const todayLabel = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' }).toUpperCase();
   const openDrawerItem = (fn) => () => { setMenuOpen(false); fn(); };
+  const matchFor = (r) => {
+    const ings = r?.ingredients ?? [];
+    return { have: ings.filter((ing) => hasItem(ing.item)).length, total: ings.length };
+  };
+  const openRecipe = (index) => { setRecipeIndex(index); setModal('recipe'); };
 
-  return (
-    <div
-      className="app-shell"
-      onTouchStart={(e) => { touchStart.current = isTypingTarget(e.target) ? null : e.touches[0].clientX; }}
-      onTouchEnd={finishSwipe}
-    >
-      <header className="topbar">
-        <div className="topbar-left">
-          <button className="icon-btn menu-btn" onClick={() => setMenuOpen(true)} aria-label="Open menu">
-            <Icon name="menu" size={22} />
-          </button>
-          <button className="brand" onClick={() => setView('list')} aria-label="EBTreats home">
-            <span className="brand-mark"><Icon name="leaf" size={17} /></span>
+  function goTab(next) {
+    setView(next);
+    if (mainRef.current) mainRef.current.scrollTop = 0;
+  }
+
+  function submitAddItem(e) {
+    e.preventDefault();
+    const name = addDraft.trim();
+    if (!name) return;
+    if (isListed(name)) notify(`${capitalize(name)} is already on your list`);
+    else addToList([{ name, detail: 'Added by you' }]);
+    setAddDraft('');
+  }
+
+  const removeFromList = (item) => setList((current) => current.filter((i) => i !== item));
+
+  async function sendChat(text) {
+    const message = String(text ?? '').trim();
+    if (!message || chatBusy) return;
+    const next = [...chat, { role: 'user', text: message }];
+    setChat(next);
+    setChatDraft('');
+    setChatBusy(true);
+    try {
+      const res = await api.goalChat({
+        username: username || undefined,
+        messages: next.filter((m) => !m.error).map(({ role, text: t }) => ({ role, text: t })),
+        goals: username ? undefined : goals,
+      });
+      setChat([...next, { role: 'assistant', text: res.reply || 'Got it.' }]);
+      if (Array.isArray(res.goals)) setGoals(res.goals);
+    } catch (err) {
+      setChat([...next, { role: 'assistant', text: `Sorry, I couldn't answer that: ${err.message}`, error: true }]);
+    } finally {
+      setChatBusy(false);
+    }
+  }
+
+  // Grocery list grouped by aisle when the items carry a category (from a shopping plan).
+  const listGroups = useMemo(() => {
+    const groups = new Map();
+    list.forEach((item) => {
+      const key = LIST_CATEGORIES[item.category] ? item.category : 'other';
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(item);
+    });
+    return Object.keys(LIST_CATEGORIES).filter((k) => groups.has(k)).map((k) => [k, groups.get(k)]);
+  }, [list]);
+  const showGroupLabels = listGroups.length > 1 || (listGroups[0] && listGroups[0][0] !== 'other');
+
+  const authModal = modal === 'auth' && <AuthModal onClose={() => setModal(null)} onAuthed={onAuthed} />;
+
+  // ---- first visit ---------------------------------------------------------
+  if (!welcomed && !username) {
+    return (
+      <div className="m-app">
+        <main className="m-screen m-welcome">
+          <div className="m-brand">
+            <span className="m-brand-mark"><Icon name="leaf" size={20} /></span>
             EBTreats
-          </button>
+          </div>
+          <div className="m-welcome-hero" aria-hidden="true">
+            <div className="m-row m-row-demo">
+              <span className="m-check on"><Icon name="check" size={14} /></span>
+              <div className="m-row-text"><strong className="done">Spinach</strong><small>For green enchiladas</small></div>
+              <b>$1.29</b>
+            </div>
+            <div className="m-row m-row-demo">
+              <span className="m-check" />
+              <div className="m-row-text"><strong>Black beans</strong><small>For bean tacos</small></div>
+              <b>$0.99</b>
+            </div>
+            <div className="m-row m-row-demo">
+              <span className="m-check pantry"><Icon name="leaf" size={13} /></span>
+              <div className="m-row-text"><strong>Eggs</strong><small>Already in your pantry</small></div>
+              <b className="muted">$0.00</b>
+            </div>
+            <span className="m-pill amber"><Icon name="sparkle" size={14} /> Only buy what you need</span>
+          </div>
+          <h1 className="m-display">Stretch your EBT further, and eat better.</h1>
+          <p className="m-lead">Plan healthy meals from what you already have, find SNAP stores nearby, and only buy what you need.</p>
+          <div className="m-welcome-actions">
+            <button className="m-btn primary" onClick={() => setModal('auth')}>Create free account</button>
+            <button className="m-btn secondary" onClick={() => setModal('auth')}>Log in</button>
+            <button className="m-btn ghost" onClick={() => setWelcomed(true)}>Continue as guest</button>
+          </div>
+        </main>
+        {authModal}
+      </div>
+    );
+  }
+
+  // ---- screens -------------------------------------------------------------
+  const homeScreen = (
+    <div className="m-page">
+      <header className="m-head">
+        <div>
+          <p className="m-eyebrow">{todayLabel}</p>
+          <h1 className="m-title">{greeting()}{username ? `, ${capitalize(username)}` : ''}.</h1>
         </div>
-        <div className="view-switch" aria-label="Select view">
-          <button className={view === 'list' ? 'active' : ''} onClick={() => setView('list')}>
-            <Icon name="list" size={16} /> My list
-          </button>
-          <button className={view === 'map' ? 'active' : ''} onClick={() => setView('map')}>
-            <Icon name="map" size={16} /> Find stores
-          </button>
-        </div>
-        <div className="topbar-actions">
-          <button className="benefit-pill" onClick={() => setModal('prefs')} title="Change your weekly budget">
-            <Icon name="card" size={15} /> <strong>${prefs.budget}</strong>
-            <span>weekly budget</span>
-          </button>
-          {username ? (
-            <button className="avatar" onClick={() => setMenuOpen(true)} aria-label="Open account">
-              {username.slice(0, 2).toUpperCase()}
-            </button>
-          ) : (
-            <button className="login-btn" onClick={() => setModal('auth')}>Log in</button>
-          )}
-        </div>
+        <button className="m-avatar" onClick={() => setMenuOpen(true)} aria-label="Open account">
+          {username ? username.slice(0, 2).toUpperCase() : <Icon name="user" size={18} />}
+        </button>
       </header>
 
-      <main className={`stage ${view}`}>
-        <section className="map-view" aria-hidden={view !== 'map'}>
-          <StoreMap
-            active={view === 'map'}
-            onSearch={setMapSearch}
-            onSelectStore={setMapStore}
-            onPlan={() => setModal('plan')}
-            focus={mapFocus}
-          />
-        </section>
+      <section className={`m-budget ${budgetLeft < 0 ? 'over' : ''}`}>
+        <div className="m-budget-top">
+          <Icon name="card" size={18} />
+          <span>Weekly SNAP budget</span>
+          <button onClick={() => setModal('prefs')}>Edit</button>
+        </div>
+        <div className="m-budget-amount">
+          <strong>{money(Math.abs(budgetLeft))}</strong>
+          <span>{budgetLeft < 0 ? 'over' : 'left'} of {money(budget)}</span>
+        </div>
+        <div className="m-meter"><i style={{ width: `${budgetPct}%` }} /></div>
+        <p>{pricedCount ? `Your list is about ${money(listTotal)} so far` : 'Build a list to see how it fits your budget'}</p>
+      </section>
 
-        <section className="dashboard" aria-hidden={view !== 'list'}>
-          <div className="dashboard-heading">
-            <div>
-              <p className="eyebrow">{today}</p>
-              <h1>{greeting()}{username ? `, ${capitalize(username)}` : ''}.</h1>
-              <p>
-                {toBuyCount > 0
-                  ? <>You have <strong>{toBuyCount} {toBuyCount === 1 ? 'item' : 'items'}</strong> ready for your next shop.</>
-                  : 'Build this week\'s list from recipes that use what you already have.'}
-              </p>
+      <div className="m-quick">
+        <button onClick={() => setModal('receipt')}>
+          <span className="m-icon-tile"><Icon name="camera" size={20} /></span>
+          <strong>Scan receipt</strong><small>Fill your pantry</small>
+        </button>
+        <button onClick={() => goTab('chat')}>
+          <span className="m-icon-tile"><Icon name="sparkle" size={20} /></span>
+          <strong>Plan with chat</strong><small>Goals to list</small>
+        </button>
+        <button onClick={() => goTab('stores')}>
+          <span className="m-icon-tile"><Icon name="map" size={20} /></span>
+          <strong>Find stores</strong><small>SNAP nearby</small>
+        </button>
+      </div>
+
+      {useFirst.length > 0 && (
+        <button className="m-soon" role="status" onClick={() => { goTab('recipes'); if (!recipes.length) generate(); }}>
+          <Icon name="clock" size={22} />
+          <div>
+            <strong>Use this first: {useFirst.map((row) => capitalize(row.name)).join(', ')}</strong>
+            <small>{useFirst.map((row) => `${capitalize(row.name)} in ${daysText(row.daysLeft)}`).join(' · ')}</small>
+          </div>
+          <Icon name="chevron" size={20} />
+        </button>
+      )}
+
+      <div className="m-section-head">
+        <h2>Recipes for you</h2>
+        {recipes.length > 0 && <button onClick={() => goTab('recipes')}>See all</button>}
+      </div>
+      {recipes.length > 0 ? (
+        <div className="m-carousel">
+          {recipes.map((r, i) => (
+            <RecipeCard key={`${r.name}-${i}`} recipe={r} match={matchFor(r)} onOpen={() => openRecipe(i)} />
+          ))}
+        </div>
+      ) : (
+        <EmptyRecipes generating={generating} onGenerate={generate} budget={prefs.budget} time={prefs.time} />
+      )}
+    </div>
+  );
+
+  const listScreen = (
+    <div className="m-page">
+      <header className="m-head">
+        <h1 className="m-title">This week&apos;s list</h1>
+        <button className="m-icon-btn" onClick={() => setModal('plan')} aria-label="Build my shopping list" title="Build my shopping list">
+          <Icon name="sparkle" size={20} />
+        </button>
+      </header>
+      <div className="m-seg" role="tablist" aria-label="List view">
+        <button role="tab" aria-selected={listTab === 'buy'} className={listTab === 'buy' ? 'on' : ''} onClick={() => setListTab('buy')}>
+          To buy <i>{list.length}</i>
+        </button>
+        <button role="tab" aria-selected={listTab === 'have'} className={listTab === 'have' ? 'on' : ''} onClick={() => setListTab('have')}>
+          In pantry <i>{pantryRows.length}</i>
+        </button>
+      </div>
+
+      {listTab === 'buy' ? (
+        <>
+          <form className="m-add" onSubmit={submitAddItem}>
+            <Icon name="plus" size={20} />
+            <input value={addDraft} onChange={(e) => setAddDraft(e.target.value)} placeholder="Add an item…" aria-label="Add an item" />
+            {addDraft.trim() && <button type="submit">Add</button>}
+          </form>
+          {list.length === 0 ? (
+            <div className="m-empty">
+              <strong>Your list is empty</strong>
+              <p>Scan a receipt to fill your pantry, then pick a recipe. Missing ingredients land here, so you only buy what you need.</p>
+              <div className="m-actions">
+                <button className="m-btn primary" onClick={() => setModal('plan')}><Icon name="list" size={16} /> Build my shopping list</button>
+                <button className="m-btn secondary" onClick={() => goTab('chat')}><Icon name="sparkle" size={16} /> Plan with chat</button>
+              </div>
             </div>
-            <button className="swipe-hint" onClick={() => setView('map')}>
-              <span>Find SNAP stores near you</span>
-              <Icon name="chevron" size={16} />
-            </button>
-          </div>
-
-          <div className="workspace">
-            <article className={`grocery-sheet ${recipeFront ? 'behind' : ''}`}>
-              <div className="sheet-head">
-                <div>
-                  <span className="list-kicker">MY GROCERY LIST</span>
-                  <h2>For this week</h2>
-                </div>
-                <div className="sheet-meta">
-                  <span><i className="dot buy" /> To buy</span>
-                  <span><i className="dot have" /> Already have</span>
-                </div>
-              </div>
-
-              {useFirst.length > 0 && (
-                <div className="use-first" role="status">
-                  <strong><Icon name="clock" size={14} /> Use this first</strong>
-                  <span>
-                    {useFirst.map((row) => `${capitalize(row.name)} (${row.daysLeft <= 0 ? 'today' : `${row.daysLeft} ${row.daysLeft === 1 ? 'day' : 'days'}`})`).join(', ')}
-                  </span>
-                </div>
-              )}
-
-              <div className="items">
-                {list.length === 0 && pantryRows.length === 0 && (
-                  <div className="list-empty">
-                    <strong>Your list is empty</strong>
-                    Scan a grocery receipt to fill your pantry, then pick a recipe.
-                    Missing ingredients land here, so you only buy what you need.
-                    <div className="list-actions" style={{ padding: 0 }}>
-                      <button className="ghost-btn" onClick={() => setModal('plan')}><Icon name="list" size={14} /> Build my shopping list</button>
-                      <button className="ghost-btn" onClick={() => setModal('receipt')}><Icon name="upload" size={14} /> Scan a receipt</button>
-                      <button className="ghost-btn" onClick={generate} disabled={generating}><Icon name="sparkle" size={14} /> {generating ? 'Generating...' : 'Suggest recipes'}</button>
-                    </div>
-                  </div>
-                )}
-
-                {list.map((item) => (
-                  <div className="grocery-item buy" key={`buy-${item.name}`}>
-                    <div className="tag-dots"><i style={{ background: item.source ? '#ee9d32' : '#3f7f35' }} /></div>
-                    <span className="item-thumb" style={{ background: thumbColor(item.name) }}>{item.name.charAt(0).toUpperCase()}</span>
-                    <div className="item-copy">
-                      <h3>{capitalize(item.name)}</h3>
-                      <p>{item.detail || 'To buy'}</p>
-                      {item.source ? <span>For {item.source}</span> : item.store ? <span>At {item.store}</span> : null}
-                    </div>
-                    <span className="have-label" />
-                    <button className="score score-a" onClick={() => boughtItem(item)} aria-label={`I bought ${item.name}`} title="Bought it: move to pantry">
-                      <Icon name="check" size={16} />
-                    </button>
-                  </div>
-                ))}
-
-                {pantryRows.map((row) => (
-                  <div className="grocery-item have" key={`have-${row.name}`}>
-                    <div className="tag-dots"><i style={{ background: row.daysLeft != null ? '#ee9d32' : '#aab1aa' }} /></div>
-                    <span className="item-thumb" style={{ background: thumbColor(row.name) }}>{row.name.charAt(0).toUpperCase()}</span>
-                    <div className="item-copy">
-                      <h3>{capitalize(row.name)}</h3>
-                      <p>{row.qty} in your pantry</p>
-                      {row.daysLeft != null && (
-                        <span>{row.daysLeft <= 0 ? 'Use today' : `Use within ${row.daysLeft} ${row.daysLeft === 1 ? 'day' : 'days'}`}</span>
-                      )}
-                    </div>
-                    {row.daysLeft != null
-                      ? <span className="use-soon"><Icon name="clock" size={13} /> Use soon</span>
-                      : <span className="have-label"><Icon name="check" size={13} /> Have</span>}
-                    <button className="score score-have" onClick={() => usedItem(row.name)} aria-label={`Used up ${row.name}`} title="Used it up: remove from pantry">
-                      <Icon name="minus" size={16} />
-                    </button>
-                  </div>
-                ))}
-              </div>
-
-              {(list.length > 0 || pantryRows.length > 0) && (
-                <div className="list-actions">
-                  <button className="ghost-btn" onClick={() => setModal('plan')}><Icon name="list" size={14} /> Build my shopping list</button>
-                  <button className="ghost-btn" onClick={() => setModal('receipt')}><Icon name="upload" size={14} /> Scan a receipt</button>
-                  {list.length > 1 && (
-                    <button className="ghost-btn" onClick={() => planMeals(list.map((i) => i.name))} disabled={generating}>
-                      <Icon name="sparkle" size={14} /> {generating ? 'Planning meals...' : 'Plan meals from my list'}
-                    </button>
-                  )}
-                  {list.length > 0 && (
-                    <button className="ghost-btn" onClick={() => setList([])}><Icon name="close" size={14} /> Clear to-buy items</button>
-                  )}
-                </div>
-              )}
-
-              <div className="notepad">
-                <div className="notepad-title">
-                  <span>QUICK NOTES</span>
-                  <small>{notes.length ? 'Tap + to add to your list' : 'Jot anything down'}</small>
-                </div>
-                {notes.map((item, index) => (
-                  <div className="note-row" key={`${item}-${index}`}>
-                    <span>{index + 1}</span>
-                    <p>{item}</p>
-                    <button onClick={() => promoteNote(index)} aria-label={`Add ${item} to my list`}>
-                      <Icon name="plus" size={15} />
-                    </button>
-                  </div>
-                ))}
-                {noteDraft !== null ? (
-                  <form className="note-row" onSubmit={addNote}>
-                    <span>{notes.length + 1}</span>
-                    <input autoFocus value={noteDraft} onChange={(e) => setNoteDraft(e.target.value)} onBlur={() => { if (!noteDraft.trim()) setNoteDraft(null); }} placeholder="e.g. oat milk" />
-                    <button type="submit" aria-label="Save note"><Icon name="check" size={15} /></button>
-                  </form>
-                ) : (
-                  <button className="add-item" onClick={() => setNoteDraft('')}>
-                    <Icon name="plus" size={16} /> Add an item
-                  </button>
-                )}
-              </div>
-            </article>
-
-            <article className={`recipe-card ${recipeFront ? 'front' : ''}`} onClick={() => setRecipeFront(true)}>
-              <div className="recipe-tab"><span>{recipe ? recipe.name : 'Recipes for you'}</span></div>
-              <button
-                className="recipe-mode"
-                onClick={(e) => { e.stopPropagation(); generate(); }}
-                disabled={generating}
-                aria-label="Suggest new recipes"
-                title="Suggest new recipes"
-              >
-                {recipe ? <Icon name="sparkle" size={21} /> : <span className="new-badge">!</span>}
-              </button>
-              <div className="recipe-image placeholder">
-                <Icon name="leaf" size={64} />
-                <span>
-                  {!recipe ? 'COOK FROM WHAT YOU HAVE'
-                    : mealPlan ? `MEAL ${recipeIndex + 1} OF ${recipes.length} · FROM YOUR LIST`
-                      : `SUGGESTION ${recipeIndex + 1} OF ${recipes.length}`}
-                </span>
-              </div>
-              <div className="recipe-content">
-                {recipe ? (
-                  <>
-                    <p>{[recipe.cuisine, ...(recipe.tags ?? []).slice(0, 2)].filter(Boolean).join(' · ').toUpperCase() || 'SUGGESTED FOR YOU'}</p>
-                    <h2>{recipe.name}</h2>
-                    <div className="recipe-stats">
-                      {recipe.time ? <span>{recipe.time} min</span> : null}
-                      {recipe.time && recipe.budget ? <i /> : null}
-                      {recipe.budget ? <span>About ${Number(recipe.budget).toFixed(2)}</span> : null}
-                    </div>
-                    <div className="ingredient-match">
-                      <span><Icon name="leaf" size={14} /> {match.have} of {match.total} ingredients in your pantry</span>
-                      <div><i style={{ width: `${match.total ? Math.round((match.have / match.total) * 100) : 0}%` }} /></div>
-                    </div>
-                    {sharedHere.length > 0 && (
-                      <div className="meal-share">
-                        <Icon name="list" size={13} /> Shares {sharedHere.slice(0, 3).join(', ')}{sharedHere.length > 3 ? '...' : ''} with your other meals
+          ) : (
+            listGroups.map(([key, items]) => (
+              <div className="m-group" key={key}>
+                {showGroupLabels && <p className="m-eyebrow">{LIST_CATEGORIES[key].toUpperCase()}</p>}
+                <div className="m-rows">
+                  {items.map((item) => (
+                    <div className="m-row" key={`buy-${item.name}`}>
+                      <button className="m-check" onClick={() => boughtItem(item)} aria-label={`I bought ${item.name}`} title="Bought it: move to pantry">
+                        <Icon name="check" size={14} />
+                      </button>
+                      <div className="m-row-text">
+                        <strong>{capitalize(item.name)}</strong>
+                        <small>{[listDetail(item), item.source ? `for ${item.source}` : item.store ? `at ${item.store}` : null].filter(Boolean).join(' · ')}</small>
                       </div>
-                    )}
-                    <button className="recipe-cta" onClick={(e) => { e.stopPropagation(); setModal('recipe'); }}>
-                      View recipe <Icon name="chevron" size={16} />
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <p>PERSONALIZED · BUDGET FRIENDLY</p>
-                    <h2>Meals from your pantry</h2>
-                    <div className="recipe-blurb">
-                      We suggest five meals that fit your ${prefs.budget} budget and {prefs.time} minutes,
-                      using what you already have first.
+                      {Number(item.price) > 0 && <b>{money(item.price)}</b>}
+                      <button className="m-row-x" onClick={() => removeFromList(item)} aria-label={`Remove ${item.name}`}>
+                        <Icon name="close" size={16} />
+                      </button>
                     </div>
-                    <button className="recipe-cta" onClick={(e) => { e.stopPropagation(); generate(); }} disabled={generating}>
-                      {generating ? 'Generating recipes...' : 'Suggest recipes'} <Icon name="chevron" size={16} />
-                    </button>
-                  </>
-                )}
+                  ))}
+                </div>
               </div>
-              {recipes.length > 1 && (
-                <button
-                  className="next-recipe"
-                  onClick={(e) => { e.stopPropagation(); setRecipeIndex((recipeIndex + 1) % recipes.length); }}
-                  aria-label="Next recipe"
-                >
-                  <span />
-                  <Icon name="chevron" size={22} />
+            ))
+          )}
+          {list.length > 0 && (
+            <div className="m-actions">
+              {list.length > 1 && (
+                <button className="m-btn secondary" onClick={() => planMeals(list.map((i) => i.name))} disabled={generating}>
+                  <Icon name="sparkle" size={16} /> {generating ? 'Planning meals…' : 'Plan meals from my list'}
                 </button>
               )}
-              {recipeFront && (
-                <button className="send-back" onClick={(e) => { e.stopPropagation(); setRecipeFront(false); }}>
-                  Back to list
-                </button>
-              )}
-            </article>
+              <button className="m-btn ghost" onClick={() => setList([])}><Icon name="close" size={16} /> Clear list</button>
+            </div>
+          )}
+        </>
+      ) : (
+        <>
+          {useFirst.length > 0 && (
+            <div className="m-pill amber m-use-first" role="status">
+              <Icon name="clock" size={13} /> Use this first: {useFirst.map((row) => `${capitalize(row.name)} (${daysText(row.daysLeft)})`).join(', ')}
+            </div>
+          )}
+          {pantryRows.length === 0 ? (
+            <div className="m-empty">
+              <strong>Your pantry is empty</strong>
+              <p>Scan a grocery receipt, or check items off your list as you buy them.</p>
+            </div>
+          ) : (
+            <div className="m-rows">
+              {pantryRows.map((row) => (
+                <div className="m-row" key={`have-${row.name}`}>
+                  <span className="m-check pantry"><Icon name="leaf" size={13} /></span>
+                  <div className="m-row-text">
+                    <strong>{capitalize(row.name)}</strong>
+                    <small>{row.qty} in your pantry</small>
+                  </div>
+                  {row.daysLeft != null && (
+                    <span className="m-pill amber small">
+                      <Icon name="clock" size={12} /> {row.daysLeft <= 0 ? 'Use today' : `${row.daysLeft}d left`}
+                    </span>
+                  )}
+                  <button className="m-row-x" onClick={() => usedItem(row.name)} aria-label={`Used up ${row.name}`} title="Used it up">
+                    <Icon name="minus" size={16} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="m-actions">
+            <button className="m-btn secondary" onClick={() => setModal('receipt')}><Icon name="camera" size={16} /> Scan a receipt</button>
           </div>
-        </section>
+        </>
+      )}
+    </div>
+  );
+
+  const recipesScreen = (
+    <div className="m-page">
+      <header className="m-head">
+        <div>
+          <h1 className="m-title">Recipes</h1>
+          <p className="m-sub">Picked from your pantry, budget and goals</p>
+        </div>
+        <button className="m-icon-btn" onClick={generate} disabled={generating} aria-label="Suggest new recipes" title="Suggest new recipes">
+          <Icon name="sparkle" size={20} />
+        </button>
+      </header>
+      <button className="m-promo" onClick={() => goTab('chat')}>
+        <span className="m-icon-tile dark"><Icon name="sparkle" size={20} /></span>
+        <div><strong>Plan 3 meals that share ingredients</strong><small>Fewer items, less waste. Takes a minute.</small></div>
+        <Icon name="chevron" size={20} />
+      </button>
+      {mealPlan && recipes.length > 0 && (
+        <p className="m-note">
+          <Icon name="list" size={14} /> Meals from your list
+          {mealPlan.shared?.length ? `, sharing ${mealPlan.shared.slice(0, 3).join(', ')}` : ''}
+        </p>
+      )}
+      {generating && <p className="m-note"><Icon name="sparkle" size={14} /> Cooking up recipes… this takes a few seconds.</p>}
+      {recipes.length > 0 ? (
+        <div className="m-stack">
+          {recipes.map((r, i) => (
+            <RecipeCard key={`${r.name}-${i}`} recipe={r} match={matchFor(r)} onOpen={() => openRecipe(i)} wide />
+          ))}
+        </div>
+      ) : (
+        !generating && <EmptyRecipes generating={generating} onGenerate={generate} budget={prefs.budget} time={prefs.time} />
+      )}
+    </div>
+  );
+
+  const chatScreen = (
+    <div className="m-page m-chat">
+      <header className="m-head">
+        <div>
+          <h1 className="m-title">Plan with EBTreats</h1>
+          <p className="m-sub">Tell me your goals. I&apos;ll build the list.</p>
+        </div>
+        <button className="m-icon-btn" onClick={() => setChat([])} aria-label="New chat" title="New chat">
+          <Icon name="plus" size={20} />
+        </button>
+      </header>
+      <div className="m-bubble">
+        Hi{username ? ` ${capitalize(username)}` : ''}! What are you aiming for this week? I&apos;ll keep it within your {money(budget)} budget.
+      </div>
+      {chat.map((m, i) => (
+        <div key={i} className={`m-bubble ${m.role === 'user' ? 'me' : ''} ${m.error ? 'error' : ''}`}>{m.text}</div>
+      ))}
+      {chatBusy && <div className="m-bubble typing" aria-label="EBTreats is typing"><i /><i /><i /></div>}
+      {goals.length > 0 && (
+        <div className="m-goals">
+          <p className="m-eyebrow">YOUR GOALS</p>
+          <div className="m-chip-row">{goals.map((g) => <span key={g} className="m-chip on">{g}</span>)}</div>
+          <button className="m-btn primary" onClick={() => setModal('plan')}><Icon name="list" size={16} /> Build my shopping list</button>
+        </div>
+      )}
+      {chat.length === 0 && !chatBusy && (
+        <div className="m-chip-row">
+          {['More protein', 'Less sugar', 'Kid friendly', 'Eat more vegetables'].map((q) => (
+            <button key={q} className="m-chip" onClick={() => sendChat(q)}>{q}</button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+
+  const screens = { home: homeScreen, list: listScreen, recipes: recipesScreen, chat: chatScreen };
+
+  return (
+    <div className="m-app">
+      <main className={`m-screen ${view === 'stores' ? 'hide' : ''}`} ref={mainRef}>
+        {screens[view]}
       </main>
+
+      <section className={`m-stores ${view === 'stores' ? 'show' : ''}`} aria-hidden={view !== 'stores'}>
+        <StoreMap
+          active={view === 'stores'}
+          onSearch={setMapSearch}
+          onSelectStore={setMapStore}
+          onPlan={() => setModal('plan')}
+          focus={mapFocus}
+        />
+      </section>
+
+      {view === 'list' && listTab === 'buy' && list.length > 0 && (
+        <div className="m-summary">
+          <div>
+            <strong>{pricedCount ? `Est. ${money(listTotal)}` : `${list.length} ${list.length === 1 ? 'item' : 'items'}`}</strong>
+            <small className={budgetLeft < 0 ? 'over' : ''}>
+              {pricedCount ? (budgetLeft < 0 ? `${money(-budgetLeft)} over budget` : `Fits your budget · ${money(budgetLeft)} left`) : 'Prices show up for planned items'}
+            </small>
+          </div>
+          <button className="m-btn primary" onClick={() => setModal('plan')}>Cheapest store</button>
+        </div>
+      )}
+
+      {view === 'chat' && (
+        <form className="m-composer" onSubmit={(e) => { e.preventDefault(); sendChat(chatDraft); }}>
+          <input value={chatDraft} onChange={(e) => setChatDraft(e.target.value)} placeholder="Ask about meals, budget, goals…" aria-label="Message" />
+          <button type="submit" disabled={!chatDraft.trim() || chatBusy} aria-label="Send"><Icon name="send" size={20} /></button>
+        </form>
+      )}
+
+      <nav className="m-tabbar" aria-label="Main">
+        {TABS.map(([id, label, icon]) => (
+          <button key={id} className={view === id ? 'on' : ''} onClick={() => goTab(id)} aria-current={view === id ? 'page' : undefined}>
+            <span>
+              <Icon name={icon} size={22} />
+              {id === 'list' && list.length > 0 && <em>{list.length}</em>}
+            </span>
+            {label}
+          </button>
+        ))}
+      </nav>
 
       <div className={`drawer-backdrop ${menuOpen ? 'show' : ''}`} onClick={() => setMenuOpen(false)} />
       <aside className={`side-drawer ${menuOpen ? 'open' : ''}`} aria-hidden={!menuOpen}>
@@ -714,19 +847,13 @@ export default function App() {
           <button onClick={openDrawerItem(() => setModal('receipt'))}>
             <Icon name="upload" /> Scan a receipt <Icon name="chevron" size={16} />
           </button>
-          <button onClick={openDrawerItem(() => setView('map'))}>
-            <Icon name="pin" /> Find SNAP stores <Icon name="chevron" size={16} />
-          </button>
-          <button onClick={openDrawerItem(() => { setView('list'); generate(); })} disabled={generating}>
-            <Icon name="sparkle" /> {generating ? 'Generating recipes...' : 'Suggest recipes'} <Icon name="chevron" size={16} />
-          </button>
         </nav>
         <div className="drawer-foot">
           <span><Icon name="leaf" size={14} /> Store data from the USDA SNAP Retailer Locator</span>
         </div>
       </aside>
 
-      {modal === 'auth' && <AuthModal onClose={() => setModal(null)} onAuthed={onAuthed} />}
+      {authModal}
       {modal === 'prefs' && <PreferencesModal prefs={prefs} onSave={savePrefs} onClose={() => setModal(null)} />}
       {modal === 'receipt' && <ReceiptModal onClose={() => setModal(null)} onAdd={addReceiptItems} />}
       {modal === 'plan' && (
@@ -740,6 +867,7 @@ export default function App() {
           planning={generating}
           onShowStore={showStoreOnMap}
           onClose={() => setModal(null)}
+          initialGoals={goals}
         />
       )}
       {modal === 'recipe' && recipe && (
@@ -759,6 +887,41 @@ export default function App() {
           <button onClick={() => setToast(null)} aria-label="Dismiss"><Icon name="close" size={14} /></button>
         </div>
       )}
+    </div>
+  );
+}
+
+function RecipeCard({ recipe, match, onOpen, wide = false }) {
+  const meta = [
+    recipe.time ? `${recipe.time} min` : null,
+    recipe.budget ? `about ${money(recipe.budget)}` : null,
+  ].filter(Boolean).join(' · ');
+  return (
+    <button className={`m-recipe ${wide ? 'wide' : ''}`} onClick={onOpen}>
+      <div className="m-recipe-img">
+        <Icon name="recipes" size={44} />
+        {match.total > 0 && (
+          <span className="m-pill amber"><Icon name="leaf" size={13} /> Uses {match.have} of {match.total} you have</span>
+        )}
+      </div>
+      <div className="m-recipe-body">
+        <h3>{recipe.name}</h3>
+        {meta && <p><Icon name="clock" size={15} /> {meta}</p>}
+      </div>
+    </button>
+  );
+}
+
+function EmptyRecipes({ generating, onGenerate, budget, time }) {
+  return (
+    <div className="m-empty">
+      <strong>Meals from your pantry</strong>
+      <p>We suggest meals that fit your ${budget} budget and {time} minutes, using what you already have first.</p>
+      <div className="m-actions">
+        <button className="m-btn primary" onClick={onGenerate} disabled={generating}>
+          <Icon name="sparkle" size={16} /> {generating ? 'Generating recipes…' : 'Suggest recipes'}
+        </button>
+      </div>
     </div>
   );
 }
