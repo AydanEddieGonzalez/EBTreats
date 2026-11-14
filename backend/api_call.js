@@ -10,6 +10,7 @@ import express from 'express';
 const app = express();
 const port = 3001;
 import mongoose from 'mongoose';
+import dns from 'dns';
 import multer from 'multer';
 import { spawn } from 'child_process';
 import path from 'path';
@@ -100,11 +101,41 @@ function runPython(scriptPath, args = [], input = null) {
 }
 
 async function connect() {
+    if (!uri) {
+        console.error("MongoDB: MONGODB_URI is missing from backend/.env");
+        return;
+    }
+    // dbName: without it, a URI ending in "/" puts everything in a database called "test"
+    const options = { dbName: process.env.MONGODB_DB || undefined, serverSelectionTimeoutMS: 10000 };
+    let lastError;
     try {
-        await mongoose.connect(uri);
-        console.log("Successful connection to MongoDB")
+        await mongoose.connect(uri, options);
     } catch (error) {
-        console.log(error);
+        lastError = error;
+        // Node on Windows often can't do the SRV lookup that mongodb+srv:// needs; retry with public DNS
+        if (/querySrv|queryTxt/.test(String(error?.message))) {
+            console.warn("MongoDB DNS lookup failed, retrying with public DNS (8.8.8.8, 1.1.1.1)...");
+            dns.setServers(['8.8.8.8', '1.1.1.1']);
+            try {
+                await mongoose.connect(uri, options);
+                lastError = null;
+            } catch (retryError) {
+                lastError = retryError;
+            }
+        }
+    }
+    if (!lastError) {
+        console.log(`Successful connection to MongoDB (database: ${mongoose.connection.name})`);
+        return;
+    }
+    const msg = String(lastError?.message || lastError);
+    console.error("MongoDB connection FAILED:", msg);
+    if (/bad auth|Authentication failed/i.test(msg)) {
+        console.error("  -> Wrong username or password in MONGODB_URI. Special characters in the password (@ : / # %) must be URL-encoded.");
+    } else if (/querySrv|queryTxt|ENOTFOUND/.test(msg)) {
+        console.error("  -> DNS can't find the cluster. Check the host in MONGODB_URI, or try another network / hotspot.");
+    } else {
+        console.error("  -> Most likely your IP isn't on the Atlas allow list (Atlas > Network Access > Add Current IP Address), or the cluster is paused.");
     }
 }
 
@@ -221,7 +252,8 @@ app.get('/users', async (req, res) => {
 app.get('/users/:username', async (req, res) => {
     try {
         const { username } = req.params
-        if (mongoAvailable) {
+        let user = null;
+        if (mongoose.connection.readyState === 1) { // 1 = connected
           try {
               user = await UserProfile.findByUsername(username);
           } catch (err) {
@@ -519,7 +551,7 @@ app.post('/ocr', upload.single('file'), async (req, res) => {
     }
 });
 
-// POST generate recipes with the Gemini pipeline
+// POST generate recipes with the Claude pipeline
 // BODY: { username, pantryItems, time, difficulty, budget, allergens, appliances, cuisines, shoppingList? }
 // With shoppingList: returns { recipes (2-3 sharing ingredients), sharedIngredients, unusedItems }
 app.post('/generate_recipes', async (req, res) => {

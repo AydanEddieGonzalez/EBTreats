@@ -27,7 +27,7 @@ import sys
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from llm_pipeline.gemini import generate_json, make_client  # noqa: E402
+from llm_pipeline.llm import generate_json, make_client  # noqa: E402
 
 MAX_GOALS = 5
 MAX_GOAL_LENGTH = 80

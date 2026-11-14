@@ -45,7 +45,7 @@ Coming next: one-tap checkout with delivery partners that accept EBT online (aut
 
 ### ML Pipeline
 - **Python** - Data processing and ML
-- **Google Gemini API** - LLM-based recipe generation
+- **Claude API** - LLM-based recipe generation
 - **OCR** - Receipt image text extraction
 - **Image Processing** - Receipt cleaning and preprocessing
 
@@ -71,7 +71,7 @@ EBTreats/
 │   └── package.json         # Dependencies
 │
 ├── llm_pipeline/            # Recipe generation engine
-│   ├── llm_recipe_generator.py  # Gemini API integration
+│   ├── llm_recipe_generator.py  # Recipe generation (Claude)
 │   ├── LLMValidator.py      # Recipe validation
 │   └── ranker.py            # Recipe ranking
 │
@@ -93,7 +93,7 @@ EBTreats/
 - Node.js and npm
 - Python 3.8+
 - MongoDB (local or Atlas)
-- Google Gemini API key
+- Claude API key
 
 ### Installation
 
@@ -140,7 +140,7 @@ All keys live in `backend/.env`, which is gitignored. Never commit it. `backend/
 
 | Variable | What it's for | Where to get it |
 | --- | --- | --- |
-| `MY_API_KEY` | Gemini recipe generation | https://aistudio.google.com/apikey |
+| `ANTHROPIC_API_KEY` | Claude recipe generation, shopping list, goal chat | https://console.anthropic.com/settings/keys |
 | `USDA_API_KEY` | Receipt OCR food check | https://fdc.nal.usda.gov/api-key-signup |
 | `MONGODB_URI` | Database connection | Ask the Integration lead for the team URI |
 | `MONGODB_DB` | Database name | Ask the Integration lead |
@@ -198,7 +198,7 @@ Signed-out guests can use everything; their pantry and list are saved in the bro
 - User preference management
 
 ### LLM Pipeline
-- **RecipeLLM** - Generates personalized recipes using Google Gemini
+- **RecipeLLM** - Generates personalized recipes using Claude
 - **LLMValidator** - Validates and verifies recipe data
 - **Ranker** - Ranks recipes by relevance to user preferences
 

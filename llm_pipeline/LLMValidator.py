@@ -1,6 +1,7 @@
 from data_classes.UserProfile import UserProfile
 from data_classes.Recipes import Recipe
-from llm_pipeline.llm_recipe_generator import RecipeLLM, GEMINI_MODEL
+from llm_pipeline.llm_recipe_generator import RecipeLLM
+from llm_pipeline.llm import generate_json
 import json
 
 INGREDIENT_THRESHOLD = 0.75
@@ -41,13 +42,9 @@ class Validator:
         User restrictions: {user.dietary_restrictions}
         Output ONLY JSON.
         """
-        response = client.models.generate_content(
-            model=GEMINI_MODEL,
-            contents=prompt,
+        result = generate_json(
+            client,
+            prompt,
+            {"type": "object", "properties": {"valid": {"type": "boolean"}}, "required": ["valid"]},
         )
-        try:
-            result = json.loads(response.text)
-            return bool(result.get("valid", False))
-        except Exception:
-            print("VALIDATION JSON ERROR:", response.text)
-            return False
+        return bool((result or {}).get("valid", False))
