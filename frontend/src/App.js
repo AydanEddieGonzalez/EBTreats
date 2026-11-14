@@ -8,6 +8,7 @@ import Generate from './Generate.js';
 import Recipes from './Recipes.js';
 import Preferences from './Preferences.js';
 import UploadReceipts from './UploadReceipts.js';
+import StoreMap from './StoreMap.js';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { useState } from 'react';
 
@@ -48,6 +49,7 @@ function App() {
           <Route path="/upload" element={<UploadReceipts username={username} pantryItems={pantryItems} setPantryItems={setPantryItems}/>}></Route>
           <Route path="/generate" element={<Generate username={username} pantryItems={pantryItems} time={timeState[0]} difficulty={difficultyState[0]} budget={budgetState[0]} allergens={allergens} appliances={appliances} cuisines={cuisines}/>}></Route>
           <Route path="/recipes" element={<Recipes />}></Route>
+          <Route path="/map" element={<StoreMap />}></Route>
           <Route path="/preferences" element={<Preferences timeState={timeState} difficultyState={difficultyState} budgetState={budgetState} setAllergens={setAllergens} setCuisines={setCuisines} setAppliances={setAppliances}/>}></Route>
         </Routes>
       </div>
