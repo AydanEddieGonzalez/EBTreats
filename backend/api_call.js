@@ -516,11 +516,13 @@ app.post('/ocr', upload.single('file'), async (req, res) => {
 });
 
 // POST generate recipes with the Gemini pipeline
-// BODY: { username, pantryItems, time, difficulty, budget, allergens, appliances, cuisines }
+// BODY: { username, pantryItems, time, difficulty, budget, allergens, appliances, cuisines, shoppingList? }
+// With shoppingList: returns { recipes (2-3 sharing ingredients), sharedIngredients, unusedItems }
 app.post('/generate_recipes', async (req, res) => {
   try {
     const scriptPath = path.resolve(__dirname, '../llm_pipeline/generate_cli.py');
     const recipes = await runPython(scriptPath, [], req.body ?? {});
+    if (recipes && !Array.isArray(recipes)) return res.status(200).json(recipes); // meal prep mode
     return res.status(200).json({ recipes: recipes ?? [] });
   } catch (error) {
     console.error("Recipe generation error:", error.message);
