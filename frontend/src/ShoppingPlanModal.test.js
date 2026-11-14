@@ -49,7 +49,7 @@ const plan = {
 };
 
 function renderModal(props = {}) {
-  const handlers = { onAddItems: jest.fn(), onShowStore: jest.fn(), onClose: jest.fn() };
+  const handlers = { onAddItems: jest.fn(), onPlanMeals: jest.fn(), onShowStore: jest.fn(), onClose: jest.fn() };
   render(
     <ShoppingPlanModal
       prefs={prefs}
@@ -145,4 +145,21 @@ test('planItemToListItem handles a missing price and unit', () => {
     detail: '1',
     store: undefined,
   });
+});
+
+test('plans meals from the checked items, and hides the option for a single item', async () => {
+  api.getShoppingPlan.mockResolvedValue(plan);
+  const { onPlanMeals, onAddItems } = renderModal();
+  fireEvent.click(screen.getByRole('button', { name: /build my list/i }));
+  await screen.findByText('Berkeley Bowl');
+
+  fireEvent.click(screen.getByRole('button', { name: /plan 3 meals that share ingredients/i }));
+  expect(onPlanMeals).toHaveBeenCalledWith([
+    { name: 'Bananas', detail: '2 lb · about $1.20', store: 'Berkeley Bowl' },
+    { name: 'Dried black beans', detail: '1 bag · about $2.50', store: 'Berkeley Bowl' },
+  ]);
+  expect(onAddItems).not.toHaveBeenCalled();
+
+  fireEvent.click(screen.getByRole('button', { name: /leave out bananas/i }));
+  expect(screen.queryByRole('button', { name: /plan 3 meals/i })).not.toBeInTheDocument();
 });

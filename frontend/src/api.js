@@ -57,6 +57,16 @@ export const savePreferences = (username, prefs) =>
 export const generateRecipes = (payload) =>
   request('/generate_recipes', sendJson('POST', payload)).then((body) => body.recipes ?? []);
 
+// Meal prep (recipe-gen): 2-3 recipes cooked from one shopping list so items are shared.
+// payload: the same fields as generateRecipes plus shoppingList: [item names]
+// Returns { recipes, sharedIngredients, unusedItems }.
+export const generateMealPlan = (payload) =>
+  request('/generate_recipes', sendJson('POST', payload)).then((body) => ({
+    recipes: body.recipes ?? [],
+    sharedIngredients: body.sharedIngredients ?? [],
+    unusedItems: body.unusedItems ?? [],
+  }));
+
 // { [ingredient]: [quantity, unit] }
 export function scanReceipt(file) {
   const formData = new FormData();

@@ -2415,3 +2415,22 @@ body {
     flex-wrap: wrap;
   }
 }
+
+/* Meal plan from the grocery list (recipe-gen) */
+.meal-share {
+  margin-top: 10px;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  color: var(--cf-green-dark);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+.plan-meals-btn {
+  width: 100%;
+  margin-top: 10px;
+  justify-content: center;
+  padding: 10px 12px;
+  font-size: 11px;
+}

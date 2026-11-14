@@ -212,8 +212,8 @@ export function ReceiptModal({ onClose, onAdd }) {
   );
 }
 
-export function RecipeModal({ recipe, hasItem, onClose, onAddMissing }) {
-  const missing = recipe.ingredients.filter((ing) => !hasItem(ing.item));
+export function RecipeModal({ recipe, hasItem, isListed = () => false, mealPlan, onClose, onAddMissing }) {
+  const missing = recipe.ingredients.filter((ing) => !hasItem(ing.item) && !isListed(ing.item));
   return (
     <Modal onClose={onClose} wide>
       <p className="eyebrow">{[recipe.cuisine, ...(recipe.tags ?? []).slice(0, 2)].filter(Boolean).join(' · ').toUpperCase() || 'RECIPE'}</p>
@@ -227,11 +227,12 @@ export function RecipeModal({ recipe, hasItem, onClose, onAddMissing }) {
       <ul className="recipe-detail-list">
         {recipe.ingredients.map((ing, i) => {
           const have = hasItem(ing.item);
+          const listed = !have && isListed(ing.item);
           return (
             <li key={i}>
-              <i className={have ? 'got' : 'need'}><Icon name={have ? 'check' : 'plus'} size={14} /></i>
+              <i className={have || listed ? 'got' : 'need'}><Icon name={have ? 'check' : listed ? 'list' : 'plus'} size={14} /></i>
               {ing.item}
-              <span>{[ing.amount, ing.unit].filter(Boolean).join(' ')}{have ? ' · have' : ''}</span>
+              <span>{[ing.amount, ing.unit].filter(Boolean).join(' ')}{have ? ' · have' : listed ? ' · on your list' : ''}</span>
             </li>
           );
         })}
@@ -241,6 +242,17 @@ export function RecipeModal({ recipe, hasItem, onClose, onAddMissing }) {
         <>
           <p className="section-label">YOU WILL USE</p>
           <p className="form-note">{recipe.appliances.join(', ')}</p>
+        </>
+      )}
+
+      {mealPlan && (
+        <>
+          <p className="section-label">PART OF YOUR MEAL PLAN</p>
+          <p className="form-note" style={{ marginTop: 0 }}>
+            One of {mealPlan.count} meals cooked from your grocery list.
+            {mealPlan.sharedHere.length > 0 && ` Shares ${mealPlan.sharedHere.join(', ')} with the other meals.`}
+            {mealPlan.unused.length > 0 && ` Not used by any meal: ${mealPlan.unused.join(', ')}.`}
+          </p>
         </>
       )}
 
@@ -287,7 +299,9 @@ export function planItemToListItem(item, store) {
 
 // "Build my shopping list": location + budget + goals go to POST /shopping-plan, and the
 // healthy SNAP-eligible list comes back for the top-ranked store (or the pin picked on the map).
-export function ShoppingPlanModal({ prefs, pantryItems, mapSearch, mapStore, onAddItems, onShowStore, onClose }) {
+export function ShoppingPlanModal({
+  prefs, pantryItems, mapSearch, mapStore, onAddItems, onPlanMeals, planning, onShowStore, onClose,
+}) {
   const [budget, setBudget] = useState(Number(prefs.budget) || 50);
   const [householdSize, setHouseholdSize] = useState(1);
   const [days, setDays] = useState(7);
@@ -470,6 +484,15 @@ export function ShoppingPlanModal({ prefs, pantryItems, mapSearch, mapStore, onA
                 <Icon name="list" size={17} /> Put {chosen.length} {chosen.length === 1 ? 'item' : 'items'} on my list
                 {chosen.length > 0 ? ` (${money(chosenTotal)})` : ''}
               </button>
+              {onPlanMeals && chosen.length > 1 && (
+                <button
+                  className="ghost-btn plan-meals-btn"
+                  disabled={planning}
+                  onClick={() => onPlanMeals(chosen.map((item) => planItemToListItem(item, store)))}
+                >
+                  <Icon name="sparkle" size={14} /> Add them and plan 3 meals that share ingredients
+                </button>
+              )}
             </div>
           </>
         )}
