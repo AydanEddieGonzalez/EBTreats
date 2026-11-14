@@ -1,6 +1,7 @@
 import pluralize from 'pluralize';
  import { getDb } from './mongodb.js';
 import { registerStoreRoutes } from './stores.js';
+import { registerShoppingPlanRoutes } from './shoppingPlan.js';
 import 'dotenv/config';
 
 import express from 'express';
@@ -566,6 +567,9 @@ app.post('/login', async (req, res) => {
 
 // SNAP store lookup: GET /stores?lat=..&lng=..&radius=..  (see stores.js)
 registerStoreRoutes(app);
+
+// Core loop: location and budget in, stores and shopping list out (see shoppingPlan.js)
+registerShoppingPlanRoutes(app, { runPython });
 
 // Start the server
 app.listen(port, () => {
