@@ -1,13 +1,9 @@
 import pluralize from 'pluralize';
  import { getDb } from './mongodb.js';
-<<<<<<< HEAD
-import { registerStoreRoutes } from './stores.js';
-import { shelfLifeFor, pantryNamesFor, expiringItemsFor } from './pantryMapping.js';
-=======
-import { registerStoreRoutes, registerStoreFallbackRoutes } from './stores.js';
-import { registerShoppingPlanRoutes } from './shoppingPlan.js';
-import { registerGoalChatRoutes } from './goalChat.js';
->>>>>>> 2815e5616bc650037feaa77064c8f2cd6fabccce
+ import { registerStoreRoutes, registerStoreFallbackRoutes } from './stores.js';
+ import { registerShoppingPlanRoutes } from './shoppingPlan.js';
+ import { registerGoalChatRoutes } from './goalChat.js';
+ import { shelfLifeFor, pantryNamesFor, expiringItemsFor } from './pantryMapping.js';
 import 'dotenv/config';
 
 import express from 'express';
