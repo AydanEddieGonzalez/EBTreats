@@ -1,52 +1,78 @@
-// src/backend/api_call.js (The Frontend Client)
+// Client for the Express backend (backend/api_call.js, port 3001).
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:3001';
 
-const API_BASE_URL = "http://localhost:3001"; // Matches the port in your server.js
+async function request(path, options = {}) {
+  let res;
+  try {
+    res = await fetch(`${API_BASE_URL}${path}`, options);
+  } catch {
+    throw new Error('Could not reach the server. Is the backend running on port 3001?');
+  }
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const err = new Error(body.error || `Request failed (${res.status})`);
+    err.status = res.status;
+    throw err;
+  }
+  return body;
+}
 
-// Helper function to handle response logic
-const handleResponse = async (response) => {
-    if (!response.ok) {
-        const error = await response.json().catch(() => ({}));
-        throw new Error(error.error || "API request failed");
-    }
-    return response.json();
-};
+const sendJson = (method, data) => ({
+  method,
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify(data),
+});
 
-// --- API FUNCTIONS ---
+const userPath = (username) => encodeURIComponent(username);
 
-// 1. Get User Profile
-export const getUserProfile = async (username) => {
-    const response = await fetch(`${API_BASE_URL}/users/${username}`);
-	console.log(response);
-    return handleResponse(response);
-};
-// export const confirmUserPassword = async (username) => {
-//     const response = await fetch(`${API_BASE_URL}/users/${username}/verify-password`);
-// 	console.log(response);
-//     return handleResponse(response);
-// };
+// { message, user: { username, dietaryRestrictions, cuisinePreferences, budget, timeAvailable, appliances, ingredients } }
+export const login = (username, password) => request('/login', sendJson('POST', { username, password }));
 
-// 2. Create New User
-export const createUser = async (userData) => {
-    const response = await fetch(`${API_BASE_URL}/users`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(userData),
-    });
-    return handleResponse(response);
-};
+export const signup = (username, password) => request('/users', sendJson('POST', { username, password }));
 
-// 3. Update User Ingredients
-export const updateUserIngredients = async (username, ingredientsList) => {
-    const response = await fetch(`${API_BASE_URL}/user-ingredients/${username}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(ingredientsList),
-    });
-    return handleResponse(response);
-};
+// { [ingredient]: quantity }
+export const getPantry = (username) => request(`/user-ingredients/${userPath(username)}`);
 
-// 4. Get User Ingredients
-export const getUserIngredients = async (username) => {
-    const response = await fetch(`${API_BASE_URL}/user-ingredients/${username}`);
-    return handleResponse(response);
-};
+// changes: { [ingredient]: quantityDelta }. Returns the updated { [ingredient]: quantity }.
+export const changePantry = (username, changes) =>
+  request(`/user-ingredients/${userPath(username)}`, sendJson('PATCH', changes));
+
+// [{ name, quantity, expiresOn, daysLeft }]
+export const getExpiring = (username, days = 3) =>
+  request(`/expiring/${userPath(username)}?days=${days}`);
+
+export const savePreferences = (username, prefs) =>
+  request(
+    `/users/${userPath(username)}`,
+    sendJson('PATCH', {
+      budget: Number(prefs.budget),
+      timeAvailable: Number(prefs.time),
+      cuisinePreferences: prefs.cuisines,
+      appliances: prefs.appliances,
+      dietaryRestrictions: prefs.allergens,
+    }),
+  );
+
+// [{ name, ingredients: [{item, amount, unit}], instructions: [str], appliances, budget, time, cuisine, tags }]
+export const generateRecipes = (payload) =>
+  request('/generate_recipes', sendJson('POST', payload)).then((body) => body.recipes ?? []);
+
+// { [ingredient]: [quantity, unit] }
+export function scanReceipt(file) {
+  const formData = new FormData();
+  formData.append('file', file);
+  return request('/ocr', { method: 'POST', body: formData });
+}
+
+// SNAP stores, ranked by the backend (incentive program, then store type, then distance).
+export function findStores({ lat, lng, zip, radius }) {
+  const params = new URLSearchParams({ limit: '60' });
+  if (zip) {
+    params.set('zip', zip);
+  } else {
+    params.set('lat', lat);
+    params.set('lng', lng);
+    params.set('radius', radius);
+  }
+  return request(`/stores?${params}`).then((body) => body.stores ?? []);
+}
