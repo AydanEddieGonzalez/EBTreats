@@ -2,8 +2,9 @@
 Entry point for POST /generate_recipes in backend/api_call.js.
 
 Reads a JSON payload on stdin:
-  { username, pantryItems, time, difficulty, budget, allergens, appliances, cuisines }
-Prints one line of JSON to stdout: a list of recipes in the shape the React Generate page renders:
+  { username, pantryItems, time, difficulty, budget, allergens, appliances, cuisines, shoppingList? }
+If shoppingList is set, prints { recipes, sharedIngredients, unusedItems } with 2-3 recipes built from that list.
+Otherwise prints one line of JSON to stdout: a list of recipes in the shape the React Generate page renders:
   { name, ingredients: [{item, amount, unit}], instructions: [str], appliances, budget, time, cuisine, tags }
 All logging goes to stderr so stdout stays parseable.
 """
@@ -21,6 +22,8 @@ load_dotenv(os.path.join(ROOT, "backend", ".env"))
 
 from data_classes.UserProfile import UserProfile  # noqa: E402
 from llm_pipeline.llm_recipe_generator import RecipeLLM  # noqa: E402
+
+MEAL_PREP_RECIPES = 3  # 2 to 3 recipes tied to one shopping list
 
 N_RECIPES = 5
 
@@ -73,6 +76,20 @@ def main():
     )
 
     llm = RecipeLLM()
+
+    shopping_list = [str(i).strip() for i in payload.get("shoppingList") or [] if str(i).strip()]
+    if shopping_list:
+        # meal prep mode: 2-3 recipes that share ingredients from the shopping list
+        recipes, analysis = llm.generate_meal_prep_recipes(
+            user,
+            shopping_list,
+            n_recipes=MEAL_PREP_RECIPES,
+            difficulty=payload.get("difficulty"),
+            pantry_items=payload.get("pantryItems") or [],
+        )
+        print(json.dumps({"recipes": [to_frontend(r) for r in recipes], **analysis}))
+        return
+
     recipes = llm.generate_recipes(
         user,
         n_recipes=N_RECIPES,

@@ -1,6 +1,8 @@
 import pluralize from 'pluralize';
  import { getDb } from './mongodb.js';
-import { registerStoreRoutes } from './stores.js';
+import { registerStoreRoutes, registerStoreFallbackRoutes } from './stores.js';
+import { registerShoppingPlanRoutes } from './shoppingPlan.js';
+import { registerGoalChatRoutes } from './goalChat.js';
 import 'dotenv/config';
 
 import express from 'express';
@@ -189,6 +191,7 @@ const userProfileSchema = new mongoose.Schema({
     budget: Number,
     timeAvailable: Number,
     appliances: [String],
+    goals: [String],             // health goals from the goal chat (goalChat.js)
     recipeRatings: { type: Map, of: Number },
     ingredients:   { type: Map, of: Number },
     ingredientAddedAt: { type: Map, of: Date, default: {} },
@@ -515,11 +518,13 @@ app.post('/ocr', upload.single('file'), async (req, res) => {
 });
 
 // POST generate recipes with the Gemini pipeline
-// BODY: { username, pantryItems, time, difficulty, budget, allergens, appliances, cuisines }
+// BODY: { username, pantryItems, time, difficulty, budget, allergens, appliances, cuisines, shoppingList? }
+// With shoppingList: returns { recipes (2-3 sharing ingredients), sharedIngredients, unusedItems }
 app.post('/generate_recipes', async (req, res) => {
   try {
     const scriptPath = path.resolve(__dirname, '../llm_pipeline/generate_cli.py');
     const recipes = await runPython(scriptPath, [], req.body ?? {});
+    if (recipes && !Array.isArray(recipes)) return res.status(200).json(recipes); // meal prep mode
     return res.status(200).json({ recipes: recipes ?? [] });
   } catch (error) {
     console.error("Recipe generation error:", error.message);
@@ -566,6 +571,15 @@ app.post('/login', async (req, res) => {
 
 // SNAP store lookup: GET /stores?lat=..&lng=..&radius=..  (see stores.js)
 registerStoreRoutes(app);
+
+// Core loop: location and budget in, stores and shopping list out (see shoppingPlan.js)
+registerShoppingPlanRoutes(app, { runPython });
+
+// Goal chat; goals saved to the user profile (see goalChat.js)
+registerGoalChatRoutes(app, { runPython, UserProfile });
+
+// Uncomment to all Fallback Usage
+// registerStoreFallbackRoutes(app)
 
 // Start the server
 app.listen(port, () => {
