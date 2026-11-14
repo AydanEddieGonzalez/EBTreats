@@ -65,6 +65,22 @@ export function expiringItemsFor(user, withinDays = 3, now = Date.now()) {
   return items.sort((a, b) => a.daysLeft - b.daysLeft);
 }
 
+// Same answer as expiringItemsFor, for items that are not stored on the server
+// (a guest's pantry lives in the browser). items: [{ name, addedAt, quantity? }].
+// Items with a missing or invalid addedAt are skipped.
+export function expiringFromDates(items, withinDays = 3, now = Date.now()) {
+  const out = [];
+  for (const item of Array.isArray(items) ? items : []) {
+    const name = String(item?.name ?? '').trim();
+    const added = new Date(item?.addedAt).getTime();
+    if (!name || !Number.isFinite(added)) continue;
+    const expiresOn = new Date(added + shelfLifeFor(name) * DAY_MS);
+    const daysLeft = Math.ceil((expiresOn.getTime() - now) / DAY_MS);
+    if (daysLeft <= withinDays) out.push({ name, quantity: Number(item.quantity) || 1, expiresOn, daysLeft });
+  }
+  return out.sort((a, b) => a.daysLeft - b.daysLeft);
+}
+
 const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 // Removes shopping-list items that match something already at home.

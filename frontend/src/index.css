@@ -1887,6 +1887,28 @@ body {
   letter-spacing: 0.5px;
   font-weight: 700;
 }
+.use-first {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  align-items: center;
+  margin: 0 18px 8px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: #fdf1dc;
+  color: #7a4a0c;
+  font-size: 12px;
+  line-height: 1.4;
+}
+.use-first strong {
+  display: inline-flex;
+  gap: 5px;
+  align-items: center;
+  color: #b36a12;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-size: 10px;
+}
 .score.score-have {
   background: #9aa59e;
 }
