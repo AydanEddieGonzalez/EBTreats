@@ -17,11 +17,16 @@ from dotenv import load_dotenv
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 load_dotenv(os.path.join(ROOT, "backend", ".env"))
 
-# Google retires old models for new users, so keep these configurable
+# Google retires old models for new users, so keep these configurable.
+# The free tier allows only 20 requests per day *per model*, so the lite models at the end of
+# the chain keep the app working after the main ones run out (a used-up model fails instantly).
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
 FALLBACK_MODELS = [
     m.strip()
-    for m in os.getenv("GEMINI_FALLBACK_MODELS", "gemini-3.6-flash,gemini-3.5-flash").split(",")
+    for m in os.getenv(
+        "GEMINI_FALLBACK_MODELS",
+        "gemini-3.6-flash,gemini-3.5-flash,gemini-3.5-flash-lite,gemini-3.1-flash-lite",
+    ).split(",")
     if m.strip()
 ]
 REQUEST_TIMEOUT_MS = 45_000
