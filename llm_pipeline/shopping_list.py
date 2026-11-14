@@ -44,6 +44,9 @@ FALLBACK_MODELS = [
     if m.strip()
 ]
 REQUEST_TIMEOUT_MS = 45_000
+# A busy model can stall ~40 s before erroring, so every model but the last gets less time.
+# A full list normally takes 5-10 s.
+FALLBACK_AFTER_MS = 20_000
 
 CATEGORIES = ["produce", "protein", "dairy", "grains", "pantry", "frozen", "other"]
 
@@ -238,14 +241,19 @@ class ShoppingListLLM:
     def _call_model(self, prompt: str):
         from google.genai import errors, types
 
-        config = types.GenerateContentConfig(
-            response_mime_type="application/json",
-            response_json_schema=SHOPPING_LIST_SCHEMA,
-            thinking_config=types.ThinkingConfig(thinking_level="low"),
-        )
         models = [GEMINI_MODEL] + [m for m in FALLBACK_MODELS if m != GEMINI_MODEL]
         last_error = None
-        for model in models:
+        for i, model in enumerate(models):
+            is_last = i == len(models) - 1
+            config = types.GenerateContentConfig(
+                response_mime_type="application/json",
+                response_json_schema=SHOPPING_LIST_SCHEMA,
+                thinking_config=types.ThinkingConfig(thinking_level="low"),
+                http_options=types.HttpOptions(
+                    timeout=REQUEST_TIMEOUT_MS if is_last else FALLBACK_AFTER_MS,
+                    retry_options=types.HttpRetryOptions(attempts=1),
+                ),
+            )
             try:
                 return self.client.models.generate_content(model=model, contents=prompt, config=config)
             except errors.ServerError as e:  # 5xx, e.g. 503 "high demand"
