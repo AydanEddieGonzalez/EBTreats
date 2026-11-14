@@ -37,6 +37,13 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 load_dotenv(os.path.join(ROOT, "backend", ".env"))
 # Model is configurable in backend/.env; Google retires old models for new users
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
+# Tried in order when the main model is overloaded (503) or times out, so a demo never hangs.
+FALLBACK_MODELS = [
+    m.strip()
+    for m in os.getenv("GEMINI_FALLBACK_MODELS", "gemini-3.6-flash,gemini-3.5-flash").split(",")
+    if m.strip()
+]
+REQUEST_TIMEOUT_MS = 45_000
 
 CATEGORIES = ["produce", "protein", "dairy", "grains", "pantry", "frozen", "other"]
 
@@ -213,28 +220,53 @@ class ShoppingListLLM:
             self.client = client
             return
         from google import genai
+        from google.genai import types
 
         my_api_key = api_key or os.getenv("MY_API_KEY")
         if not my_api_key:
             raise ValueError("Missing MY_API_KEY (Gemini). Put it in backend/.env.")
-        self.client = genai.Client(api_key=my_api_key)
+        # One attempt per model with a hard timeout: the SDK's default retries on a busy model
+        # can stall for minutes. Busy models are handled by falling back in generate().
+        self.client = genai.Client(
+            api_key=my_api_key,
+            http_options=types.HttpOptions(
+                timeout=REQUEST_TIMEOUT_MS,
+                retry_options=types.HttpRetryOptions(attempts=1),
+            ),
+        )
+
+    def _call_model(self, prompt: str):
+        from google.genai import errors, types
+
+        config = types.GenerateContentConfig(
+            response_mime_type="application/json",
+            response_json_schema=SHOPPING_LIST_SCHEMA,
+            thinking_config=types.ThinkingConfig(thinking_level="low"),
+        )
+        models = [GEMINI_MODEL] + [m for m in FALLBACK_MODELS if m != GEMINI_MODEL]
+        last_error = None
+        for model in models:
+            try:
+                return self.client.models.generate_content(model=model, contents=prompt, config=config)
+            except errors.ServerError as e:  # 5xx, e.g. 503 "high demand"
+                last_error = e
+            except errors.ClientError as e:  # 404 retired model or 429 rate limit: try the next one
+                if e.code not in (404, 429):
+                    raise
+                last_error = e
+            except Exception as e:  # network timeout
+                if "timeout" not in type(e).__name__.lower() and "timed out" not in str(e).lower():
+                    raise
+                last_error = e
+            print(f"{model} unavailable ({last_error}), trying next model", file=sys.stderr)
+        raise RuntimeError(f"All Gemini models are unavailable right now: {last_error}")
 
     def generate(self, request: dict) -> dict:
-        from google.genai import types
-
         request = validate_request(request)
         prompt = build_prompt(request)
         # log to stderr so stdout stays clean JSON for the Express server
         print("Building shopping list...", file=sys.stderr)
-        response = self.client.models.generate_content(
-            model=GEMINI_MODEL,
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json",
-                response_json_schema=SHOPPING_LIST_SCHEMA,
-                thinking_config=types.ThinkingConfig(thinking_level="low"),
-            ),
-        )
+        response = self._call_model(prompt)
         try:
             raw = json.loads(response.text)
         except Exception as e:
