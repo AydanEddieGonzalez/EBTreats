@@ -55,13 +55,12 @@ Coming next: one-tap checkout with delivery partners that accept EBT online (aut
 EBTreats/
 ├── frontend/                 # React application
 │   ├── src/
-│   │   ├── App.js           # Main app component
-│   │   ├── Generate.js      # Recipe generation interface
-│   │   ├── UploadReceipts.js # Receipt upload component
-│   │   ├── Login.js         # User authentication
-│   │   ├── UserProfile.js   # User profile management
-│   │   ├── Recipes.js       # Recipe display
-│   │   └── ...              # Other components
+│   │   ├── App.js           # App shell: top bar, grocery list, recipe card, drawer
+│   │   ├── StoreMap.js      # "Find stores" Leaflet map of SNAP stores
+│   │   ├── Modals.js        # Log in/sign up, preferences, receipt scan, recipe details
+│   │   ├── api.js           # Backend client
+│   │   ├── Icon.js          # Line icons
+│   │   └── index.css        # Design system (from the Figma Make design)
 │   └── public/              # Static files
 │
 ├── backend/                 # Express API
@@ -183,14 +182,13 @@ All keys live in `backend/.env`, which is gitignored. Never commit it. `backend/
 
 ## Key Components
 
-### Frontend Pages
-- **Hero** - Landing page
-- **Login/Signup** - Authentication
-- **UserProfile** - User settings and preferences
-- **UploadReceipts** - Grocery inventory management
-- **Generate** - Recipe generation interface
-- **Recipes** - View generated and saved recipes
-- **Preferences** - Configure cooking preferences
+### Frontend
+One page with two views (switch with the top toggle, arrow keys, or a swipe):
+- **My list** - Grocery list (to buy + pantry, with "use soon" items), quick notes, and the recipe card
+- **Find stores** - SNAP stores on a map, produce-incentive stores highlighted
+- **Side menu and dialogs** - Log in/sign up, preferences (budget, time, cuisines, appliances, allergies), receipt scan, recipe details
+
+Signed-out guests can use everything; their pantry and list are saved in the browser.
 
 ### Backend API
 - User authentication and management
